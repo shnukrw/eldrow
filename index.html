@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ELDROW</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="game-container" style="position: relative;">
+    <h1><i class="fas fa-gamepad"></i> ELDROW</h1>
+
+    <div class="home-stats" id="home-stats">
+      <div>High Score: <span id="high-score">0</span></div>
+    </div>
+
+    <div class="game-stats" id="game-stats" style="display: none;">
+      <div id="hearts-display"></div>
+      <div><i class="fas fa-star"></i> <span id="score">0</span></div>
+    </div>
+
+    <div class="level-difficulty" id="level-difficulty" style="display: none; text-align: center; margin: 10px 0; font-size: 16px;">
+      <div>Level: <span id="level">1</span></div>
+      <div id="difficulty" class="difficulty-badge">Easy</div>
+    </div>
+
+    <div class="timer" id="timer" style="display: none;"><i class="fas fa-stopwatch"></i><span id="timer-value">60</span></div>
+
+    <div id="game-area">
+      <div id="start-screen">
+        <p>Listen to the reversed word and guess the original!</p>
+        <div class="start-section">
+          <button class="start-button" onclick="startGame()">Start Game</button>
+          <div class="language-selector">
+            <button class="current-lang-btn" id="current-lang" onclick="toggleLanguagePopup()">EN</button>
+            <div class="language-popup" id="language-popup">
+              <button class="lang-option active" data-lang="english" onclick="selectLanguageFromPopup('english')">EN</button>
+              <button class="lang-option" data-lang="russian" onclick="selectLanguageFromPopup('russian')">RU</button>
+              <button class="lang-option" data-lang="german" onclick="selectLanguageFromPopup('german')">DE</button>
+              <button class="lang-option" data-lang="spanish" onclick="selectLanguageFromPopup('spanish')">ES</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="play-screen" style="display: none;">
+        <div style="margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto;">
+          <input type="text" class="guess-input" id="guess-input" placeholder="Your guess..."
+                 onkeypress="handleKeyPress(event)" style="width: 100%; box-sizing: border-box;">
+        </div>
+
+        <div style="display: flex; gap: 15px; margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; align-items: stretch;">
+          <button class="skip-button" onclick="skipWord(); refocusInput()" style="flex: 1;">Skip Word</button>
+          <button class="play-button speaker-btn" id="play-btn" onclick="playReversedWord(); refocusInput()"><i class="fas fa-volume-up"></i></button>
+          <button class="submit-button" onclick="submitGuess(); refocusInput()" style="flex: 1;">Submit</button>
+        </div>
+
+        <div class="feedback" id="feedback"></div>
+
+        <div style="position: absolute; bottom: 20px; right: 20px;">
+          <button class="exit-button" onclick="goHome()"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+      </div>
+
+      <div id="game-over-screen" style="display: none;" class="game-over">
+        <h2>Score</h2>
+        <p>Last: <i class="fas fa-star"></i> <span id="final-score">0</span></p>
+        <p>Best: <i class="fas fa-star"></i> <span id="best-score">0</span></p>
+
+        <div class="share-buttons" style="margin: 20px 0; display: flex; gap: 10px; justify-content: center;">
+          <button class="share-btn twitter" onclick="shareToTwitter()"><i class="fab fa-twitter"></i></button>
+          <button class="share-btn facebook" onclick="shareToFacebook()"><i class="fab fa-facebook"></i></button>
+          <button class="share-btn copy" onclick="copyScore()" title="Copy score"><i class="fas fa-copy"></i></button>
+        </div>
+
+        <button class="start-button" onclick="restartGame()">Play Again</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let words = {
+      easy: [],
+      medium: [],
+      hard: []
+    };
+
+    let gameState = {
+      score: 0,
+      lives: 3,
+      level: 1,
+      currentWord: "",
+      timeLeft: 60,
+      timer: null,
+      wordsGuessed: 0,
+      isPlaying: false,
+      currentLanguage: 'english',
+      highScore: 0
+    };
+
+    async function loadWords(language) {
+      try {
+        const response = await fetch(`words_${language}.json`);
+        const data = await response.json();
+        words = data;
+        console.log(`Loaded ${language} words:`, words);
+      } catch (error) {
+        console.error(`Failed to load ${language} words:`, error);
+        // Fallback to basic English words
+        words = {
+          easy: ["cat", "dog", "run", "sun", "car", "big", "red", "hot", "fun", "hat"],
+          medium: ["happy", "jumping", "morning", "kitchen", "rainbow", "picture"],
+          hard: ["adventure", "beautiful", "dangerous", "knowledge", "mysterious"]
+        };
+      }
+    }
+
+    function saveSettings() {
+      const settings = {
+        language: gameState.currentLanguage,
+        highScore: gameState.highScore
+      };
+      localStorage.setItem('eldrow-settings', JSON.stringify(settings));
+    }
+
+    function loadSettings() {
+      try {
+        const saved = localStorage.getItem('eldrow-settings');
+        if (saved) {
+          const settings = JSON.parse(saved);
+          gameState.currentLanguage = settings.language || 'english';
+          gameState.highScore = settings.highScore || 0;
+
+          // Update UI
+          updateLanguageDisplay();
+          updateDisplay();
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    }
+
+    function updateLanguageDisplay() {
+      const langCodes = {
+        english: 'EN',
+        russian: 'RU',
+        german: 'DE',
+        spanish: 'ES'
+      };
+
+      // Update current language button
+      document.getElementById('current-lang').textContent = langCodes[gameState.currentLanguage];
+
+      // Update popup options
+      const options = document.querySelectorAll('.lang-option');
+      options.forEach(option => {
+        if (option.dataset.lang === gameState.currentLanguage) {
+          option.classList.add('active');
+        } else {
+          option.classList.remove('active');
+        }
+      });
+    }
+
+    function toggleLanguagePopup() {
+      const popup = document.getElementById('language-popup');
+      popup.classList.toggle('show');
+    }
+
+    async function selectLanguageFromPopup(language) {
+      gameState.currentLanguage = language;
+      await loadWords(gameState.currentLanguage);
+
+      // Set speech language based on selection
+      const langCodes = {
+        english: 'en-US',
+        russian: 'ru-RU',
+        german: 'de-DE',
+        spanish: 'es-ES'
+      };
+      gameState.speechLang = langCodes[gameState.currentLanguage];
+
+      updateLanguageDisplay();
+      saveSettings();
+
+      // Hide popup
+      document.getElementById('language-popup').classList.remove('show');
+    }
+
+    async function selectLanguage(language) {
+      // Keep for backward compatibility
+      await selectLanguageFromPopup(language);
+    }
+
+    async function changeLanguage() {
+      // Keep this function for backward compatibility
+      await selectLanguage(gameState.currentLanguage);
+    }
+
+    async function startGame() {
+      await loadWords(gameState.currentLanguage);
+
+      gameState = {
+        ...gameState,
+        score: 0,
+        lives: 3,
+        level: 1,
+        currentWord: "",
+        timeLeft: 60,
+        timer: null,
+        wordsGuessed: 0,
+        isPlaying: true
+      };
+
+      // Show game elements, hide home elements
+      document.getElementById("home-stats").style.display = "none";
+      document.getElementById("game-stats").style.display = "flex";
+      document.getElementById("level-difficulty").style.display = "block";
+      document.getElementById("timer").style.display = "block";
+
+      updateDisplay();
+      document.getElementById("start-screen").style.display = "none";
+      document.getElementById("play-screen").style.display = "block";
+      document.getElementById("game-over-screen").style.display = "none";
+
+      nextWord();
+    }
+
+    function nextWord() {
+      if (!gameState.isPlaying) return;
+
+      const difficulties = ['easy', 'medium', 'hard'];
+      const difficultyIndex = Math.min(Math.floor(gameState.level / 5), 2);
+      const difficulty = difficulties[difficultyIndex];
+      const wordList = words[difficulty];
+
+      if (!wordList || wordList.length === 0) {
+        console.error(`No words available for difficulty: ${difficulty}`);
+        return;
+      }
+
+      gameState.currentWord = wordList[Math.floor(Math.random() * wordList.length)];
+
+      // Timer is already set by the calling function (correct answer, timeout, or fresh start)
+
+      updateDisplay();
+      startTimer();
+
+      const inputField = document.getElementById("guess-input");
+      inputField.value = "";
+      inputField.classList.remove("skipped", "correct", "timeout");
+      document.getElementById("feedback").textContent = "";
+      inputField.focus();
+
+      setTimeout(() => {
+        if (gameState.isPlaying) {
+          playReversedWord();
+        }
+      }, 500);
+    }
+
+    function playReversedWord() {
+      if (!gameState.isPlaying) return;
+
+      const reversedWord = gameState.currentWord.split("").reverse().join("");
+      const utterance = new SpeechSynthesisUtterance(reversedWord);
+      utterance.rate = Math.max(0.3, 1 - gameState.level * 0.05);
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      utterance.lang = gameState.speechLang || 'en-US';
+
+      speechSynthesis.cancel();
+      speechSynthesis.speak(utterance);
+    }
+
+    function submitGuess() {
+      const guess = document.getElementById("guess-input").value.toLowerCase().trim();
+      const feedback = document.getElementById("feedback");
+
+      if (guess === gameState.currentWord.toLowerCase()) {
+        gameState.score += Math.max(1, Math.floor(gameState.timeLeft / 10)) * gameState.level;
+        gameState.wordsGuessed++;
+        gameState.level++;
+
+        // Highlight input field green for correct answer
+        const inputField = document.getElementById("guess-input");
+        inputField.classList.add("correct");
+
+        clearInterval(gameState.timer);
+        // Reset timer to 60 for next word
+        gameState.timeLeft = 60;
+
+        setTimeout(() => {
+          nextWord();
+        }, 2000);
+
+      } else {
+        // Flash submit button and change text
+        const submitBtn = document.querySelector('.submit-button');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = 'Wrong';
+        submitBtn.classList.add('wrong');
+
+        setTimeout(() => {
+          submitBtn.innerHTML = originalText;
+          submitBtn.classList.remove('wrong');
+        }, 800);
+
+        // Don't reduce lives for wrong guesses
+      }
+
+      updateDisplay();
+    }
+
+    function skipWord() {
+      // Show the correct word in grey
+      const inputField = document.getElementById("guess-input");
+      inputField.value = gameState.currentWord;
+      inputField.classList.add("skipped");
+
+      // Reduce score by 1, but don't go below 0
+      gameState.score = Math.max(0, gameState.score - 1);
+
+      clearInterval(gameState.timer);
+
+      // If less than 10 seconds, boost to 10 seconds
+      if (gameState.timeLeft < 10) {
+        gameState.timeLeft = 10;
+      }
+
+      setTimeout(() => {
+        nextWord();
+      }, 2000);
+
+      updateDisplay();
+    }
+
+    function startTimer() {
+      clearInterval(gameState.timer);
+      gameState.timer = setInterval(() => {
+        gameState.timeLeft--;
+        updateDisplay();
+
+        if (gameState.timeLeft <= 0) {
+          gameState.lives--; // Reduce life for timeout
+          clearInterval(gameState.timer);
+
+          // Show correct answer in red in input field
+          const inputField = document.getElementById("guess-input");
+          inputField.value = gameState.currentWord;
+          inputField.classList.add("timeout");
+
+          // Reset timer to 60 for next word
+          gameState.timeLeft = 60;
+          updateDisplay();
+
+          if (gameState.lives <= 0) {
+            setTimeout(() => {
+              endGame();
+            }, 2000);
+          } else {
+            setTimeout(() => {
+              nextWord();
+            }, 2000);
+          }
+        }
+      }, 1000);
+    }
+
+    function endGame() {
+      gameState.isPlaying = false;
+      clearInterval(gameState.timer);
+      speechSynthesis.cancel();
+
+      // Update high score if current score is higher
+      if (gameState.score > gameState.highScore) {
+        gameState.highScore = gameState.score;
+        saveSettings();
+      }
+
+      document.getElementById("final-score").textContent = gameState.score;
+      document.getElementById("best-score").textContent = gameState.highScore;
+
+      updateDisplay();
+      // Don't hide play screen, just show game over overlay
+      document.getElementById("game-over-screen").style.display = "block";
+    }
+
+    function goHome() {
+      // Stop current game
+      gameState.isPlaying = false;
+      clearInterval(gameState.timer);
+      speechSynthesis.cancel();
+
+      // Hide game elements, show home elements
+      document.getElementById("home-stats").style.display = "flex";
+      document.getElementById("game-stats").style.display = "none";
+      document.getElementById("level-difficulty").style.display = "none";
+      document.getElementById("timer").style.display = "none";
+
+      document.getElementById("start-screen").style.display = "block";
+      document.getElementById("play-screen").style.display = "none";
+      document.getElementById("game-over-screen").style.display = "none";
+    }
+
+    function restartGame() {
+      // Hide game over overlay first
+      document.getElementById("game-over-screen").style.display = "none";
+      startGame();
+    }
+
+    function updateDisplay() {
+      document.getElementById("score").textContent = gameState.score;
+      document.getElementById("high-score").textContent = gameState.highScore;
+      updateHeartsDisplay();
+      document.getElementById("level").textContent = gameState.level;
+
+      // Update timer with color coding
+      const timerElement = document.getElementById("timer");
+      const timerValue = document.getElementById("timer-value");
+      const timeLeft = Math.max(0, gameState.timeLeft); // Never show negative
+
+      timerValue.textContent = timeLeft;
+
+      // Reset timer classes
+      timerElement.className = "timer";
+
+      // Add danger class when 10 seconds or less
+      if (timeLeft <= 10 && timeLeft > 0) {
+        timerElement.classList.add("danger");
+      }
+
+      const difficultyElement = document.getElementById("difficulty");
+      const difficultyLevel = gameState.level <= 3 ? "Easy" :
+                             gameState.level <= 6 ? "Medium" : "Hard";
+
+      difficultyElement.textContent = difficultyLevel;
+      difficultyElement.className = `difficulty-badge ${difficultyLevel.toLowerCase()}`;
+    }
+
+    function updateHeartsDisplay() {
+      const heartsContainer = document.getElementById("hearts-display");
+      heartsContainer.innerHTML = "";
+
+      const totalHearts = 3; // Always show 3 heart positions
+
+      for (let i = 0; i < totalHearts; i++) {
+        const heart = document.createElement("i");
+        if (i < gameState.lives) {
+          // Alive heart
+          heart.className = "fas fa-heart";
+          heart.style.color = "#e74c3c";
+        } else {
+          // Broken heart
+          heart.className = "fas fa-heart-broken";
+          heart.style.color = "#bdc3c7"; // Gray color for broken hearts
+        }
+        heart.style.marginRight = "3px";
+        heartsContainer.appendChild(heart);
+      }
+    }
+
+    function handleKeyPress(event) {
+      if (event.key === "Enter") {
+        submitGuess();
+        refocusInput();
+      }
+    }
+
+    function refocusInput() {
+      setTimeout(() => {
+        const inputField = document.getElementById("guess-input");
+        if (inputField && gameState.isPlaying) {
+          inputField.focus();
+        }
+      }, 50);
+    }
+
+    function shareToTwitter() {
+      const text = `Just scored ${gameState.score} stars in ELDROW! My best: ${gameState.highScore} ⭐\n\nPlay this reverse word game: `;
+      const url = window.location.href;
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+      window.open(twitterUrl, '_blank');
+    }
+
+    function shareToFacebook() {
+      const url = window.location.href;
+      const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+      window.open(facebookUrl, '_blank');
+    }
+
+    function copyScore() {
+      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay: ${window.location.href}`;
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+          showCopyFeedback();
+        });
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showCopyFeedback();
+      }
+    }
+
+    function showCopyFeedback() {
+      const copyBtn = document.querySelector('.share-btn.copy');
+      const originalIcon = copyBtn.innerHTML;
+      copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+      copyBtn.style.backgroundColor = '#28a745';
+
+      setTimeout(() => {
+        copyBtn.innerHTML = originalIcon;
+        copyBtn.style.backgroundColor = '#6c757d';
+      }, 2000);
+    }
+
+    // Close popup when clicking outside
+    document.addEventListener('click', (event) => {
+      const popup = document.getElementById('language-popup');
+      const langSelector = document.querySelector('.language-selector');
+
+      if (popup && !langSelector.contains(event.target)) {
+        popup.classList.remove('show');
+      }
+    });
+
+    // Initialize the game
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSettings(); // Load saved settings first
+      changeLanguage(); // Load language (will use saved language)
+    });
+
+    window.addEventListener('beforeunload', () => {
+      speechSynthesis.cancel();
+      clearInterval(gameState.timer);
+    });
+  </script>
+</body>
+</html>
