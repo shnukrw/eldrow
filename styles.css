@@ -18,11 +18,31 @@ body {
 
 .game-stats {
   display: flex;
-  justify-content: center;
-  gap: 20px;
+  flex-direction: column;
+  align-items: center;
   margin-bottom: 20px;
   font-size: 18px;
   font-weight: bold;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+.level-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.game-stats .level-display {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
 }
 
 .home-stats {
@@ -36,10 +56,26 @@ body {
 
 /* Timer Styles */
 .timer {
-  font-size: 24px;
+  font-size: 18px;
   color: #2c3e50;
-  margin: 20px 0;
   font-weight: bold;
+  display: flex;
+  align-items: center;
+}
+
+.game-stats .timer {
+  margin: 0;
+}
+
+#timer-value {
+  display: inline-block;
+  min-width: 2ch;
+  text-align: right;
+}
+
+#hearts-display {
+  display: flex;
+  align-items: center;
 }
 
 .timer.warning {
@@ -175,7 +211,77 @@ body {
   justify-content: center;
 }
 
-/* Input Styles */
+/* Word Display Styles */
+.word-display {
+  padding: 15px;
+  font-size: 24px;
+  border: none;
+  min-height: 50px;
+  text-align: center;
+  background-color: transparent;
+  cursor: text;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 2px;
+}
+
+/* Hidden Input Styles */
+.hidden-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  text-align: center;
+  padding: 15px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+.word-display:focus {
+  outline: none;
+}
+
+.word-display .letter {
+  display: inline-block;
+  min-width: 20px;
+  font-weight: bold;
+}
+
+.word-display .letter.typed {
+  color: #2c3e50;
+  text-transform: lowercase;
+}
+
+.word-display .letter.asterisk {
+  color: #95a5a6;
+}
+
+.word-display.correct {
+  background-color: transparent;
+}
+
+.word-display.correct .letter.typed {
+  color: #27ae60;
+}
+
+.word-display.skipped .letter.typed {
+  color: #7f8c8d;
+}
+
+.word-display.timeout .letter.typed {
+  color: #e74c3c;
+}
+
+/* Legacy Input Styles (kept for compatibility) */
 .input-section {
   margin: 20px 0;
 }
@@ -283,6 +389,22 @@ body {
   background-color: #545b62;
 }
 
+.share-btn.whatsapp {
+  background-color: #25d366;
+}
+
+.share-btn.whatsapp:hover {
+  background-color: #1da851;
+}
+
+.share-btn.telegram {
+  background-color: #0088cc;
+}
+
+.share-btn.telegram:hover {
+  background-color: #006699;
+}
+
 /* Language Selection */
 .start-section {
   display: flex;
@@ -365,6 +487,37 @@ body {
   font-weight: bold;
   font-size: 14px;
 }
+
+/* Points Animation */
+.points-popup {
+  position: absolute;
+  font-size: 24px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 1000;
+  animation: floatUp 2s ease-out forwards;
+}
+
+.points-popup.positive {
+  color: #27ae60;
+}
+
+.points-popup.negative {
+  color: #e74c3c;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-80px);
+  }
+}
+
+
 
 .difficulty-badge.easy {
   background-color: #27ae60;

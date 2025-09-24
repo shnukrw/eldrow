@@ -16,16 +16,15 @@
     </div>
 
     <div class="game-stats" id="game-stats" style="display: none;">
-      <div id="hearts-display"></div>
-      <div><i class="fas fa-star"></i> <span id="score">0</span></div>
+      <div class="stats-row">
+        <div class="timer" id="timer"><i class="fas fa-stopwatch"></i><span id="timer-value">60</span></div>
+        <div id="hearts-display"></div>
+        <div><i class="fas fa-star"></i> <span id="score">0</span></div>
+      </div>
+      <div class="level-row">
+        <div class="level-display" id="level-display">level <span id="level-number">1</span></div>
+      </div>
     </div>
-
-    <div class="level-difficulty" id="level-difficulty" style="display: none; text-align: center; margin: 10px 0; font-size: 16px;">
-      <div>Level: <span id="level">1</span></div>
-      <div id="difficulty" class="difficulty-badge">Easy</div>
-    </div>
-
-    <div class="timer" id="timer" style="display: none;"><i class="fas fa-stopwatch"></i><span id="timer-value">60</span></div>
 
     <div id="game-area">
       <div id="start-screen">
@@ -45,22 +44,21 @@
       </div>
 
       <div id="play-screen" style="display: none;">
-        <div style="margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto;">
-          <input type="text" class="guess-input" id="guess-input" placeholder="Your guess..."
-                 onkeypress="handleKeyPress(event)" style="width: 100%; box-sizing: border-box;">
+        <div style="margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; position: relative;">
+          <div class="word-display" id="word-display" onclick="refocusInput()"></div>
+          <input type="text" class="hidden-input" id="hidden-input" autocomplete="off" spellcheck="false"
+                 onkeypress="handleKeyPress(event)" oninput="handleInput(event)"
+                 onblur="refocusInput()">
         </div>
 
-        <div style="display: flex; gap: 15px; margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; align-items: stretch;">
-          <button class="skip-button" onclick="skipWord(); refocusInput()" style="flex: 1;">Skip Word</button>
+        <div style="display: flex; gap: 15px; margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; align-items: stretch; position: relative;">
+          <button class="skip-button" onclick="skipWord(); refocusInput()" style="flex: 1;" id="skip-btn">Skip Word</button>
           <button class="play-button speaker-btn" id="play-btn" onclick="playReversedWord(); refocusInput()"><i class="fas fa-volume-up"></i></button>
-          <button class="submit-button" onclick="submitGuess(); refocusInput()" style="flex: 1;">Submit</button>
+          <button class="submit-button" onclick="submitGuess(); refocusInput()" style="flex: 1;" id="submit-btn">Submit</button>
+          <div id="points-animation-container" style="position: absolute; pointer-events: none; width: 100%; height: 100%;"></div>
         </div>
 
         <div class="feedback" id="feedback"></div>
-
-        <div style="position: absolute; bottom: 20px; right: 20px;">
-          <button class="exit-button" onclick="goHome()"><i class="fas fa-sign-out-alt"></i></button>
-        </div>
       </div>
 
       <div id="game-over-screen" style="display: none;" class="game-over">
@@ -71,6 +69,8 @@
         <div class="share-buttons" style="margin: 20px 0; display: flex; gap: 10px; justify-content: center;">
           <button class="share-btn twitter" onclick="shareToTwitter()"><i class="fab fa-twitter"></i></button>
           <button class="share-btn facebook" onclick="shareToFacebook()"><i class="fab fa-facebook"></i></button>
+          <button class="share-btn whatsapp" onclick="shareToWhatsApp()"><i class="fab fa-whatsapp"></i></button>
+          <button class="share-btn telegram" onclick="shareToTelegram()"><i class="fab fa-telegram"></i></button>
           <button class="share-btn copy" onclick="copyScore()" title="Copy score"><i class="fas fa-copy"></i></button>
         </div>
 
@@ -80,11 +80,7 @@
   </div>
 
   <script>
-    let words = {
-      easy: [],
-      medium: [],
-      hard: []
-    };
+    let words = [];
 
     let gameState = {
       score: 0,
@@ -96,23 +92,29 @@
       wordsGuessed: 0,
       isPlaying: false,
       currentLanguage: 'english',
-      highScore: 0
+      speechLang: 'en-US',
+      highScore: 0,
+      currentGuess: "",
+      displayState: "normal" // normal, correct, skipped, timeout
     };
 
     async function loadWords(language) {
       try {
-        const response = await fetch(`words_${language}.json`);
-        const data = await response.json();
-        words = data;
-        console.log(`Loaded ${language} words:`, words);
+        console.log(`Loading words for language: ${language}`);
+        const response = await fetch(`words_${language}.txt`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const text = await response.text();
+        words = text.trim().split('\n').filter(word => word.trim().length > 0);
+        console.log(`Successfully loaded ${language} words. Total words count:`, words.length);
+        console.log(`First 5 words:`, words.slice(0, 5));
+        console.log(`Word lengths range: ${Math.min(...words.map(w => w.length))} - ${Math.max(...words.map(w => w.length))}`);
       } catch (error) {
         console.error(`Failed to load ${language} words:`, error);
         // Fallback to basic English words
-        words = {
-          easy: ["cat", "dog", "run", "sun", "car", "big", "red", "hot", "fun", "hat"],
-          medium: ["happy", "jumping", "morning", "kitchen", "rainbow", "picture"],
-          hard: ["adventure", "beautiful", "dangerous", "knowledge", "mysterious"]
-        };
+        words = ["cat", "dog", "run", "sun", "car", "big", "red", "hot", "fun", "hat", "happy", "jumping", "morning", "kitchen", "rainbow", "picture", "adventure", "beautiful", "dangerous", "knowledge", "mysterious"];
+        console.log("Using fallback English words");
       }
     }
 
@@ -169,6 +171,8 @@
     }
 
     async function selectLanguageFromPopup(language) {
+      const wasPlaying = gameState.isPlaying;
+
       gameState.currentLanguage = language;
       await loadWords(gameState.currentLanguage);
 
@@ -186,6 +190,11 @@
 
       // Hide popup
       document.getElementById('language-popup').classList.remove('show');
+
+      // If game was playing, start a new word with the new language
+      if (wasPlaying) {
+        nextWord();
+      }
     }
 
     async function selectLanguage(language) {
@@ -193,13 +202,110 @@
       await selectLanguageFromPopup(language);
     }
 
+    function resetInput() {
+      const hiddenInput = document.getElementById('hidden-input');
+      gameState.currentGuess = '';
+      if (hiddenInput) {
+        hiddenInput.value = '';
+      }
+    }
+
+    function initializeWordDisplay() {
+      const wordDisplay = document.getElementById('word-display');
+
+      resetInput();
+      gameState.displayState = 'normal';
+      updateWordDisplay();
+    }
+
+    function updateWordDisplay() {
+      const wordDisplay = document.getElementById('word-display');
+      const wordLength = gameState.currentWord.length;
+      const guessLength = gameState.currentGuess.length;
+
+      let displayText = '';
+
+      // Show typed letters and remaining asterisks
+      for (let i = 0; i < wordLength; i++) {
+        if (i < guessLength) {
+          displayText += `<span class="letter typed">${gameState.currentGuess[i]}</span>`;
+        } else {
+          displayText += `<span class="letter asterisk">*</span>`;
+        }
+      }
+
+      wordDisplay.innerHTML = displayText;
+
+      // Apply state-based styling
+      wordDisplay.className = `word-display ${gameState.displayState}`;
+    }
+
+    function handleInput(event) {
+      if (!gameState.isPlaying) return;
+
+      const input = event.target.value;
+      const wordLength = gameState.currentWord.length;
+
+      // Only allow Unicode letters and limit to word length
+      const filteredInput = input.replace(/[^\p{L}]/gu, '').toLowerCase().slice(0, wordLength);
+
+      // Update the input field with filtered value to keep it in sync
+      if (event.target.value !== filteredInput) {
+        event.target.value = filteredInput;
+      }
+
+      gameState.currentGuess = filteredInput;
+      updateWordDisplay();
+    }
+
+
     async function changeLanguage() {
       // Keep this function for backward compatibility
-      await selectLanguage(gameState.currentLanguage);
+      await selectLanguageFromPopup(gameState.currentLanguage);
+    }
+
+    function showPointsAnimation(buttonId, points) {
+      const button = document.getElementById(buttonId);
+      const container = document.getElementById('points-animation-container');
+
+      if (!button || !container) return;
+
+      // Get button position relative to container
+      const buttonRect = button.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      const relativeX = buttonRect.left - containerRect.left + buttonRect.width / 2;
+      const relativeY = buttonRect.top - containerRect.top + buttonRect.height * 0.25;
+
+      // Create popup element
+      const popup = document.createElement('div');
+      popup.className = `points-popup ${points > 0 ? 'positive' : 'negative'}`;
+      popup.textContent = points > 0 ? `+${points}` : `${points}`;
+      popup.style.left = relativeX + 'px';
+      popup.style.top = relativeY + 'px';
+      popup.style.transform = 'translate(-50%, -50%)';
+
+      container.appendChild(popup);
+
+      // Remove element after animation
+      setTimeout(() => {
+        if (popup.parentNode) {
+          popup.parentNode.removeChild(popup);
+        }
+      }, 2000);
     }
 
     async function startGame() {
       await loadWords(gameState.currentLanguage);
+
+      // Set speech language before resetting gameState
+      const langCodes = {
+        english: 'en-US',
+        russian: 'ru-RU',
+        german: 'de-DE',
+        spanish: 'es-ES'
+      };
+      const speechLang = langCodes[gameState.currentLanguage];
 
       gameState = {
         ...gameState,
@@ -210,19 +316,27 @@
         timeLeft: 60,
         timer: null,
         wordsGuessed: 0,
-        isPlaying: true
+        isPlaying: true,
+        speechLang: speechLang // Preserve speech language
       };
+
+      // Re-enable submit button when starting new game
+      const submitBtn = document.getElementById('submit-btn');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+      }
 
       // Show game elements, hide home elements
       document.getElementById("home-stats").style.display = "none";
       document.getElementById("game-stats").style.display = "flex";
-      document.getElementById("level-difficulty").style.display = "block";
-      document.getElementById("timer").style.display = "block";
 
       updateDisplay();
       document.getElementById("start-screen").style.display = "none";
       document.getElementById("play-screen").style.display = "block";
       document.getElementById("game-over-screen").style.display = "none";
+
+      // Ensure input is clean before starting
+      resetInput();
 
       nextWord();
     }
@@ -230,28 +344,30 @@
     function nextWord() {
       if (!gameState.isPlaying) return;
 
-      const difficulties = ['easy', 'medium', 'hard'];
-      const difficultyIndex = Math.min(Math.floor(gameState.level / 5), 2);
-      const difficulty = difficulties[difficultyIndex];
-      const wordList = words[difficulty];
-
-      if (!wordList || wordList.length === 0) {
-        console.error(`No words available for difficulty: ${difficulty}`);
+      if (!words || words.length === 0) {
+        console.error(`No words available`);
         return;
       }
 
-      gameState.currentWord = wordList[Math.floor(Math.random() * wordList.length)];
+      // Filter words by length based on level: (level + 2) <= len <= (level + 2) * 2
+      const minLength = gameState.level + 2;
+      const maxLength = (gameState.level + 2) * 2;
+      const filteredWords = words.filter(word => word.length >= minLength && word.length <= maxLength);
+
+      // If no words match the criteria, fallback to original list
+      const availableWords = filteredWords.length > 0 ? filteredWords : words;
+
+      gameState.currentWord = availableWords[Math.floor(Math.random() * availableWords.length)];
+      console.log(`Selected word: ${gameState.currentWord} (${gameState.currentLanguage}, level ${gameState.level}, length ${gameState.currentWord.length}, range: ${minLength}-${maxLength}, available: ${availableWords.length})`);
 
       // Timer is already set by the calling function (correct answer, timeout, or fresh start)
 
       updateDisplay();
       startTimer();
 
-      const inputField = document.getElementById("guess-input");
-      inputField.value = "";
-      inputField.classList.remove("skipped", "correct", "timeout");
+      initializeWordDisplay();
       document.getElementById("feedback").textContent = "";
-      inputField.focus();
+      refocusInput();
 
       setTimeout(() => {
         if (gameState.isPlaying) {
@@ -275,17 +391,28 @@
     }
 
     function submitGuess() {
-      const guess = document.getElementById("guess-input").value.toLowerCase().trim();
+      if (!gameState.isPlaying) return;
+
+      const guess = gameState.currentGuess.toLowerCase().trim();
       const feedback = document.getElementById("feedback");
 
       if (guess === gameState.currentWord.toLowerCase()) {
-        gameState.score += Math.max(1, Math.floor(gameState.timeLeft / 10)) * gameState.level;
+        const wordLength = gameState.currentWord.length;
+        // Бонус за быстрое угадывание: 3x если больше 30 сек, иначе 2x
+        const multiplier = gameState.timeLeft > 30 ? 3 : 2;
+        const points = multiplier * wordLength;
+        gameState.score += points;
         gameState.wordsGuessed++;
-        gameState.level++;
 
-        // Highlight input field green for correct answer
-        const inputField = document.getElementById("guess-input");
-        inputField.classList.add("correct");
+        // Повышаем уровень каждые 5 угаданных слов
+        gameState.level = Math.floor(gameState.wordsGuessed / 5) + 1;
+
+        // Show points animation from Submit button
+        showPointsAnimation('submit-btn', points);
+
+        // Highlight word display green for correct answer
+        gameState.displayState = 'correct';
+        updateWordDisplay();
 
         clearInterval(gameState.timer);
         // Reset timer to 60 for next word
@@ -315,12 +442,20 @@
 
     function skipWord() {
       // Show the correct word in grey
-      const inputField = document.getElementById("guess-input");
-      inputField.value = gameState.currentWord;
-      inputField.classList.add("skipped");
+      gameState.currentGuess = gameState.currentWord;
+      gameState.displayState = 'skipped';
+      updateWordDisplay();
 
-      // Reduce score by 1, but don't go below 0
-      gameState.score = Math.max(0, gameState.score - 1);
+      // Reduce score by 1x количество букв, but don't go below 0
+      const wordLength = gameState.currentWord.length;
+      const points = -wordLength;
+      const oldScore = gameState.score;
+      gameState.score = Math.max(0, gameState.score - wordLength);
+
+      // Show points animation from Skip button (only if score actually decreased)
+      if (oldScore > gameState.score) {
+        showPointsAnimation('skip-btn', points);
+      }
 
       clearInterval(gameState.timer);
 
@@ -346,10 +481,10 @@
           gameState.lives--; // Reduce life for timeout
           clearInterval(gameState.timer);
 
-          // Show correct answer in red in input field
-          const inputField = document.getElementById("guess-input");
-          inputField.value = gameState.currentWord;
-          inputField.classList.add("timeout");
+          // Show correct answer in red
+          gameState.currentGuess = gameState.currentWord;
+          gameState.displayState = 'timeout';
+          updateWordDisplay();
 
           // Reset timer to 60 for next word
           gameState.timeLeft = 60;
@@ -372,6 +507,12 @@
       gameState.isPlaying = false;
       clearInterval(gameState.timer);
       speechSynthesis.cancel();
+
+      // Disable submit button when game is over
+      const submitBtn = document.getElementById('submit-btn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+      }
 
       // Update high score if current score is higher
       if (gameState.score > gameState.highScore) {
@@ -396,8 +537,6 @@
       // Hide game elements, show home elements
       document.getElementById("home-stats").style.display = "flex";
       document.getElementById("game-stats").style.display = "none";
-      document.getElementById("level-difficulty").style.display = "none";
-      document.getElementById("timer").style.display = "none";
 
       document.getElementById("start-screen").style.display = "block";
       document.getElementById("play-screen").style.display = "none";
@@ -414,7 +553,7 @@
       document.getElementById("score").textContent = gameState.score;
       document.getElementById("high-score").textContent = gameState.highScore;
       updateHeartsDisplay();
-      document.getElementById("level").textContent = gameState.level;
+      updateLevelDisplay();
 
       // Update timer with color coding
       const timerElement = document.getElementById("timer");
@@ -430,13 +569,14 @@
       if (timeLeft <= 10 && timeLeft > 0) {
         timerElement.classList.add("danger");
       }
+    }
 
-      const difficultyElement = document.getElementById("difficulty");
-      const difficultyLevel = gameState.level <= 3 ? "Easy" :
-                             gameState.level <= 6 ? "Medium" : "Hard";
+    function updateLevelDisplay() {
+      const levelNumber = document.getElementById("level-number");
 
-      difficultyElement.textContent = difficultyLevel;
-      difficultyElement.className = `difficulty-badge ${difficultyLevel.toLowerCase()}`;
+      if (!levelNumber) return;
+
+      levelNumber.textContent = gameState.level;
     }
 
     function updateHeartsDisplay() {
@@ -470,9 +610,9 @@
 
     function refocusInput() {
       setTimeout(() => {
-        const inputField = document.getElementById("guess-input");
-        if (inputField && gameState.isPlaying) {
-          inputField.focus();
+        const hiddenInput = document.getElementById("hidden-input");
+        if (hiddenInput && gameState.isPlaying) {
+          hiddenInput.focus();
         }
       }, 50);
     }
@@ -519,6 +659,18 @@
         copyBtn.innerHTML = originalIcon;
         copyBtn.style.backgroundColor = '#6c757d';
       }, 2000);
+    }
+
+    function shareToWhatsApp() {
+      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(whatsappUrl, '_blank');
+    }
+
+    function shareToTelegram() {
+      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`;
+      window.open(telegramUrl, '_blank');
     }
 
     // Close popup when clicking outside
