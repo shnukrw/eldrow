@@ -46,7 +46,7 @@
           <div class="language-selector">
             <button class="current-lang-btn" id="current-lang" onclick="toggleLanguagePopup()">EN</button>
             <div class="language-popup" id="language-popup">
-              <button class="lang-option active" data-lang="english" onclick="selectLanguageFromPopup('english')">EN</button>
+              <button class="lang-option" data-lang="english" onclick="selectLanguageFromPopup('english')">EN</button>
               <button class="lang-option" data-lang="russian" onclick="selectLanguageFromPopup('russian')">RU</button>
               <button class="lang-option" data-lang="german" onclick="selectLanguageFromPopup('german')">DE</button>
               <button class="lang-option" data-lang="spanish" onclick="selectLanguageFromPopup('spanish')">ES</button>
@@ -93,6 +93,7 @@
 
   <script>
     let words = [];
+    let voicesCache = [];
 
     let gameState = {
       score: 0,
@@ -103,12 +104,90 @@
       timer: null,
       wordsGuessed: 0,
       isPlaying: false,
-      currentLanguage: 'english',
+      currentLanguage: null, // No default language - user must select
       speechLang: 'en-US',
       highScore: 0,
       currentGuess: "",
-      displayState: "normal" // normal, correct, skipped, timeout
+      displayState: "normal", // normal, correct, skipped, timeout
+      startGameRequested: false // Track if user clicked start game but was waiting for language selection
     };
+
+    function isSupported() {
+      return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+    }
+
+    // Short silent utterance to wake up the speech engine on iOS/Safari/Chrome
+    function primeSynthOnce() {
+      return new Promise(resolve => {
+        try {
+          const synth = window.speechSynthesis;
+          synth.cancel(); // sometimes helps with Safari
+          const u = new SpeechSynthesisUtterance(' ');
+          u.rate = 10;
+          u.volume = 0;  // may be ignored, but utterance is very short
+          u.onend = resolve;
+          u.onerror = resolve;
+          synth.speak(u);
+          setTimeout(resolve, 600); // safety timeout
+        } catch {
+          resolve();
+        }
+      });
+    }
+
+    // Wait for voices to load: event + polling with timeout
+    function waitForVoices(timeoutMs = 5000, pollEveryMs = 120) {
+      const synth = window.speechSynthesis;
+      const start = Date.now();
+      return new Promise(resolve => {
+        function check() {
+          const list = synth.getVoices() || [];
+          if (list.length > 0) return resolve(list);
+          if (Date.now() - start >= timeoutMs) return resolve(list); // empty - unfortunate
+          setTimeout(check, pollEveryMs);
+        }
+        const onChanged = () => {
+          const list = synth.getVoices() || [];
+          if (list.length > 0) {
+            synth.removeEventListener('voiceschanged', onChanged);
+            resolve(list);
+          }
+        };
+        synth.addEventListener('voiceschanged', onChanged);
+        synth.getVoices(); // trigger
+        check();
+      });
+    }
+
+    async function initSpeechSynthesis() {
+      if (!isSupported()) {
+        throw new Error('Speech Synthesis is not supported in this browser.');
+      }
+      await primeSynthOnce();
+      voicesCache = await waitForVoices(5000);
+      if (!voicesCache || voicesCache.length === 0) {
+        // Often happens in Firefox on Android/some builds without system TTS
+        throw new Error('No voices found. Try a different browser (Chrome/Safari/Edge) or enable system TTS.');
+      }
+
+      // Debug: Log available voices
+      console.log('Available voices:', voicesCache.length);
+      voicesCache.forEach((voice, index) => {
+        console.log(`Voice ${index}: ${voice.name} (${voice.lang}) - ${voice.localService ? 'local' : 'remote'}`);
+      });
+
+      // Check for Russian voices specifically
+      const russianVoices = voicesCache.filter(voice =>
+        voice.lang.toLowerCase().includes('ru') ||
+        voice.lang.toLowerCase().includes('russian')
+      );
+      console.log('Russian voices found:', russianVoices.length);
+      russianVoices.forEach(voice => {
+        console.log(`Russian voice: ${voice.name} (${voice.lang})`);
+      });
+
+      return true;
+    }
 
     async function loadWords(language) {
       try {
@@ -139,19 +218,28 @@
     }
 
     function loadSettings() {
+      console.log('loadSettings called');
       try {
         const saved = localStorage.getItem('eldrow-settings');
+        console.log('Saved settings:', saved);
         if (saved) {
           const settings = JSON.parse(saved);
-          gameState.currentLanguage = settings.language || 'english';
+          console.log('Parsed settings:', settings);
+          gameState.currentLanguage = settings.language || null;
           gameState.highScore = settings.highScore || 0;
 
           // Update UI
           updateLanguageDisplay();
           updateDisplay();
+        } else {
+          // No saved settings - language stays null
+          console.log('No saved settings - language is null');
+          gameState.currentLanguage = null;
         }
+        console.log('After loadSettings - currentLanguage:', gameState.currentLanguage);
       } catch (error) {
         console.error('Failed to load settings:', error);
+        gameState.currentLanguage = null; // Ensure no language is set
       }
     }
 
@@ -163,13 +251,20 @@
         spanish: 'ES'
       };
 
-      // Update current language button
-      document.getElementById('current-lang').textContent = langCodes[gameState.currentLanguage];
+      // Update current language button - show globe icon if no language selected
+      const currentLangBtn = document.getElementById('current-lang');
+      if (!gameState.currentLanguage) {
+        currentLangBtn.innerHTML = '<i class="fas fa-globe"></i>';
+        currentLangBtn.title = 'Select Language';
+      } else {
+        currentLangBtn.textContent = langCodes[gameState.currentLanguage];
+        currentLangBtn.title = `Current Language: ${gameState.currentLanguage}`;
+      }
 
-      // Update popup options
+      // Update popup options - only show active if language is selected
       const options = document.querySelectorAll('.lang-option');
       options.forEach(option => {
-        if (option.dataset.lang === gameState.currentLanguage) {
+        if (option.dataset.lang === gameState.currentLanguage && gameState.currentLanguage) {
           option.classList.add('active');
         } else {
           option.classList.remove('active');
@@ -201,11 +296,21 @@
       saveSettings();
 
       // Hide popup
-      document.getElementById('language-popup').classList.remove('show');
+      const popup = document.getElementById('language-popup');
+      popup.classList.remove('show');
+      // Clear the inline display style so CSS can hide it
+      popup.style.display = '';
 
       // If game was playing, start a new word with the new language
       if (wasPlaying) {
         nextWord();
+      }
+
+      // If user clicked start game but was waiting for language selection, start the game now
+      if (gameState.startGameRequested) {
+        console.log('Language selected, automatically starting game as requested');
+        gameState.startGameRequested = false; // Reset the flag
+        startGame(); // Recursively call startGame now that language is set
       }
     }
 
@@ -308,49 +413,107 @@
     }
 
     async function startGame() {
-      await loadWords(gameState.currentLanguage);
+      // Debug logging
+      console.log('startGame called');
+      console.log('currentLanguage:', gameState.currentLanguage);
 
-      // Set speech language before resetting gameState
-      const langCodes = {
-        english: 'en-US',
-        russian: 'ru-RU',
-        german: 'de-DE',
-        spanish: 'es-ES'
-      };
-      const speechLang = langCodes[gameState.currentLanguage];
+      // Check if user needs to select a language
+      if (!gameState.currentLanguage) {
+        console.log('Opening language popup');
+        // Set flag to indicate user wants to start game after language selection
+        gameState.startGameRequested = true;
 
-      gameState = {
-        ...gameState,
-        score: 0,
-        lives: 3,
-        level: 1,
-        currentWord: "",
-        timeLeft: 60,
-        timer: null,
-        wordsGuessed: 0,
-        isPlaying: true,
-        speechLang: speechLang // Preserve speech language
-      };
+        // Force language selection popup to open
+        const popup = document.getElementById('language-popup');
+        console.log('Popup element:', popup);
+        if (!popup) {
+          console.error('Popup element not found!');
+          return;
+        }
 
-      // Re-enable submit button when starting new game
-      const submitBtn = document.getElementById('submit-btn');
-      if (submitBtn) {
-        submitBtn.disabled = false;
+        console.log('Popup current style.display:', popup.style.display);
+        console.log('Popup computed display:', window.getComputedStyle(popup).display);
+        console.log('Popup classes before:', popup.className);
+
+        popup.classList.add('show');
+        // Force display to ensure it's visible
+        popup.style.display = 'block';
+
+        console.log('Popup classes after:', popup.className);
+        console.log('Popup style.display after:', popup.style.display);
+        console.log('Popup computed display after:', window.getComputedStyle(popup).display);
+
+        console.log('Popup should be visible now, game will start after language selection');
+        return; // Don't start the game until language is selected
       }
 
-      // Show game elements, hide home elements
-      document.getElementById("home-stats").style.display = "none";
-      document.getElementById("game-stats").style.display = "flex";
+      // Disable start button during initialization
+      const startBtn = document.querySelector('.start-button');
+      const originalStartText = startBtn.textContent;
+      startBtn.disabled = true;
+      startBtn.textContent = 'Initializing...';
 
-      updateDisplay();
-      document.getElementById("start-screen").style.display = "none";
-      document.getElementById("play-screen").style.display = "block";
-      document.getElementById("game-over-screen").style.display = "none";
+      try {
+        // Initialize speech synthesis first
+        await initSpeechSynthesis();
 
-      // Ensure input is clean before starting
-      resetInput();
+        // Load words after speech is ready
+        await loadWords(gameState.currentLanguage);
 
-      nextWord();
+        // Set speech language before resetting gameState
+        const langCodes = {
+          english: 'en-US',
+          russian: 'ru-RU',
+          german: 'de-DE',
+          spanish: 'es-ES'
+        };
+        const speechLang = langCodes[gameState.currentLanguage];
+
+        gameState = {
+          ...gameState,
+          score: 0,
+          lives: 3,
+          level: 1,
+          currentWord: "",
+          timeLeft: 60,
+          timer: null,
+          wordsGuessed: 0,
+          isPlaying: true,
+          speechLang: speechLang // Preserve speech language
+        };
+
+        // Re-enable submit button when starting new game
+        const submitBtn = document.getElementById('submit-btn');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+        }
+
+        // Show game elements, hide home elements
+        document.getElementById("home-stats").style.display = "none";
+        document.getElementById("game-stats").style.display = "flex";
+
+        updateDisplay();
+        document.getElementById("start-screen").style.display = "none";
+        document.getElementById("play-screen").style.display = "block";
+        document.getElementById("game-over-screen").style.display = "none";
+
+        // Ensure input is clean before starting
+        resetInput();
+
+        nextWord();
+
+      } catch (error) {
+        // Handle initialization errors
+        console.error('Game initialization failed:', error);
+
+        // Show error message
+        const errorMsg = error.message || 'Failed to initialize game';
+        alert(`Game initialization failed: ${errorMsg}\n\nPlease try:\n• Using Chrome, Safari, or Edge browser\n• Enabling system text-to-speech\n• Refreshing the page`);
+
+        // Re-enable start button
+        startBtn.disabled = false;
+        startBtn.textContent = originalStartText;
+      }
     }
 
     function nextWord() {
@@ -397,6 +560,32 @@
       utterance.pitch = 1;
       utterance.volume = 1;
       utterance.lang = gameState.speechLang || 'en-US';
+
+      // Try to find and set a specific voice for the current language
+      if (voicesCache && voicesCache.length > 0) {
+        let preferredVoice = null;
+
+        preferredVoice = voicesCache.find(voice =>
+          voice.lang.toLowerCase().startsWith(utterance.lang.toLowerCase().substring(0, 2))
+        );
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+          console.log(`Using voice: ${preferredVoice.name} (${preferredVoice.lang}) for word: ${reversedWord}`);
+        } else {
+          console.log(`No suitable voice found for ${gameState.currentLanguage}, using default voice`);
+        }
+      }
+
+      // Add error handling for speech synthesis
+      utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event.error);
+        console.log(`Failed to speak: "${reversedWord}" in ${utterance.lang}`);
+      };
+
+      utterance.onstart = () => {
+        console.log(`Speaking: "${reversedWord}" in ${utterance.lang}`);
+      };
 
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
@@ -698,7 +887,11 @@
     // Initialize the game
     window.addEventListener('DOMContentLoaded', () => {
       loadSettings(); // Load saved settings first
-      changeLanguage(); // Load language (will use saved language)
+      updateLanguageDisplay(); // Update display based on current state
+      // Only load language if user has previously selected one
+      if (gameState.currentLanguage) {
+        changeLanguage(); // Load language (will use saved language)
+      }
     });
 
     window.addEventListener('beforeunload', () => {
