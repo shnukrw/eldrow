@@ -1,5 +1,11 @@
 /* ELDROW Game Styles */
 
+.github-button-container {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
 body {
   font-family: Arial, sans-serif;
   max-width: 800px;
