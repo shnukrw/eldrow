@@ -1,10 +1,6 @@
 /* ELDROW Game Styles */
 
-.github-button-container {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-}
+.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,60%{transform:rotate(0)}20%,80%{transform:rotate(-25deg)}40%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}
 
 body {
   font-family: Arial, sans-serif;
@@ -262,6 +258,7 @@ body {
   font-size: 18px;
   border-radius: 10px;
   cursor: pointer;
+  min-width: 85px;
 }
 
 .submit-button:hover {
@@ -503,8 +500,8 @@ body {
   width: 45px;
   height: 45px;
   border: none;
-  border-radius: 50%;
-  color: white;
+  background: none;
+  color: inherit;
   font-size: 18px;
   cursor: pointer;
   display: flex;
@@ -515,46 +512,6 @@ body {
 
 .share-btn:hover {
   transform: scale(1.1);
-}
-
-.share-btn.twitter {
-  background-color: #1da1f2;
-}
-
-.share-btn.twitter:hover {
-  background-color: #0d8bd9;
-}
-
-.share-btn.facebook {
-  background-color: #1877f2;
-}
-
-.share-btn.facebook:hover {
-  background-color: #166fe5;
-}
-
-.share-btn.copy {
-  background-color: #6c757d;
-}
-
-.share-btn.copy:hover {
-  background-color: #545b62;
-}
-
-.share-btn.whatsapp {
-  background-color: #25d366;
-}
-
-.share-btn.whatsapp:hover {
-  background-color: #1da851;
-}
-
-.share-btn.telegram {
-  background-color: #0088cc;
-}
-
-.share-btn.telegram:hover {
-  background-color: #006699;
 }
 
 /* Mode Selection */
