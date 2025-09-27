@@ -99,6 +99,27 @@
     let words = [];
     let voicesCache = [];
 
+    // UTC date utilities for consistent daily challenge timing
+    function getTodayUTC() {
+      const now = new Date();
+      const utc = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
+      return utc.toISOString().split('T')[0];
+    }
+
+    function getTimeUntilNextDayUTC() {
+      const now = new Date();
+      const tomorrow = new Date();
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      tomorrow.setUTCHours(0, 0, 0, 0);
+
+      const diff = tomorrow.getTime() - now.getTime();
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      return { hours, minutes, seconds, diff };
+    }
+
     let gameState = {
       score: 0,
       lives: 3,
@@ -234,7 +255,7 @@
         const data = await response.json();
 
         // Get today's date in YYYY-MM-DD format
-        const today = new Date().toISOString().split('T')[0];
+        const today = getTodayUTC();
 
         if (data[today]) {
           gameState.dailyWords = data[today];
@@ -279,7 +300,7 @@
     function saveGameProgress() {
       if (gameState.gameMode !== 'daily' || !gameState.isPlaying) return;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
 
       if (!gameState.gameProgress) {
         gameState.gameProgress = {};
@@ -308,7 +329,7 @@
     function hasUnfinishedGame() {
       if (!gameState.gameProgress || !gameState.currentLanguage) return false;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
       const progress = gameState.gameProgress[gameState.currentLanguage];
 
       if (!progress || !progress[today]) return false;
@@ -323,7 +344,7 @@
     function cleanOldProgress() {
       if (!gameState.gameProgress) return;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
 
       // Clean progress for all languages, keeping only today's progress
       Object.keys(gameState.gameProgress).forEach(language => {
@@ -343,7 +364,7 @@
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
       const progress = gameState.gameProgress[gameState.currentLanguage][today];
 
       try {
@@ -1101,17 +1122,7 @@
     }
 
     function getTimeUntilNextGame() {
-      const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
-
-      const diff = tomorrow.getTime() - now.getTime();
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      return { hours, minutes, seconds, diff };
+      return getTimeUntilNextDayUTC();
     }
 
     function startNextGameTimer(element) {
@@ -1184,6 +1195,41 @@
       }).join('');
     }
 
+    function dailyChallengeTitle() {
+      const today = getTodayUTC();
+      const date = new Date(today + 'T00:00:00Z');
+
+      const langCodes = {
+        english: 'EN',
+        russian: 'RU',
+        german: 'DE',
+        spanish: 'ES'
+      };
+
+      const day = date.getUTCDate().toString().padStart(2, '0');
+      const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+      const langCode = langCodes[gameState.currentLanguage] || 'EN';
+
+      return `#${day}.${month} (${langCode})`;
+    }
+
+    function formatTodayResult() {
+      const today = getTodayUTC();
+      const dailyData = gameState.dailyResult[gameState.currentLanguage];
+      const todayResult = dailyData && dailyData[today];
+
+      if (!todayResult) {
+        return `ELDROW ${dailyChallengeTitle()}\nNo result yet`;
+      }
+
+      const minutes = Math.floor(todayResult.time / 60);
+      const seconds = todayResult.time % 60;
+      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      const aims = getAimsEmoji(todayResult.aims);
+
+      return `ELDROW ${dailyChallengeTitle()}\nMy score: ⏱ ${timeStr}\n${aims}`;
+    }
+
 
     function startTimer() {
       clearInterval(gameState.timer);
@@ -1242,7 +1288,7 @@
       const hitsCount = gameState.aims.filter(aim => aim === 'hit').length;
       const helpedCount = gameState.aims.filter(aim => aim === 'helped').length;
       const totalTime = gameState.elapsedTime;
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
 
       // Save daily result with detailed stats
       if (!gameState.dailyResult[gameState.currentLanguage]) {
@@ -1364,7 +1410,7 @@
 
       // For daily challenge, go back to home instead of restarting if already completed today
       if (gameState.gameMode === 'daily') {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getTodayUTC();
         const dailyData = gameState.dailyResult[gameState.currentLanguage];
         const todayResult = dailyData && dailyData[today];
 
@@ -1508,20 +1554,7 @@
     function shareToTwitter() {
       let text;
       if (gameState.gameMode === "daily") {
-        // Get saved result for today
-        const today = new Date().toISOString().split('T')[0];
-        const dailyData = gameState.dailyResult[gameState.currentLanguage];
-        const todayResult = dailyData && dailyData[today];
-
-        if (todayResult) {
-          const aims = getAimsEmoji(todayResult.aims);
-          const minutes = Math.floor(todayResult.time / 60);
-          const seconds = todayResult.time % 60;
-          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
-        } else {
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
-        }
+        text = `${formatTodayResult()}\n\nPlay here: ${window.location.href}`;
       } else {
         text = `Just scored ${gameState.score} stars in ELDROW! My best: ${gameState.highScore} ⭐\n\nPlay here: ${window.location.href}`;
       }
@@ -1533,20 +1566,7 @@
     function copyScore() {
       let text;
       if (gameState.gameMode === "daily") {
-        // Get saved result for today
-        const today = new Date().toISOString().split('T')[0];
-        const dailyData = gameState.dailyResult[gameState.currentLanguage];
-        const todayResult = dailyData && dailyData[today];
-
-        if (todayResult) {
-          const aims = getAimsEmoji(todayResult.aims);
-          const minutes = Math.floor(todayResult.time / 60);
-          const seconds = todayResult.time % 60;
-          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
-        } else {
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
-        }
+        text = `${formatTodayResult()}\n\nPlay here: ${window.location.href}`;
       } else {
         text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay: ${window.location.href}`;
       }
@@ -1580,20 +1600,7 @@
     function shareToWhatsApp() {
       let text;
       if (gameState.gameMode === "daily") {
-        // Get saved result for today
-        const today = new Date().toISOString().split('T')[0];
-        const dailyData = gameState.dailyResult[gameState.currentLanguage];
-        const todayResult = dailyData && dailyData[today];
-
-        if (todayResult) {
-          const aims = getAimsEmoji(todayResult.aims);
-          const minutes = Math.floor(todayResult.time / 60);
-          const seconds = todayResult.time % 60;
-          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
-        } else {
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
-        }
+        text = `${formatTodayResult()}\n\nPlay here: ${window.location.href}`;
       } else {
         text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
       }
@@ -1604,20 +1611,7 @@
     function shareToTelegram() {
       let text;
       if (gameState.gameMode === "daily") {
-        // Get saved result for today
-        const today = new Date().toISOString().split('T')[0];
-        const dailyData = gameState.dailyResult[gameState.currentLanguage];
-        const todayResult = dailyData && dailyData[today];
-
-        if (todayResult) {
-          const aims = getAimsEmoji(todayResult.aims);
-          const minutes = Math.floor(todayResult.time / 60);
-          const seconds = todayResult.time % 60;
-          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}`;
-        } else {
-          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}`;
-        }
+        text = formatTodayResult();
       } else {
         text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars`;
       }
@@ -1660,7 +1654,7 @@
 
     function updateResultDisplay() {
       const homeStats = document.getElementById('home-stats');
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayUTC();
 
       if (gameState.gameMode === 'daily') {
         if (!gameState.currentLanguage) {
