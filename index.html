@@ -72,7 +72,7 @@
         </div>
 
         <div style="display: flex; gap: 15px; margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; align-items: stretch; position: relative;">
-          <button class="skip-button" onclick="skipWord(); refocusInput()" style="flex: 1;" id="skip-btn">Skip Word</button>
+          <button class="skip-button" onclick="skipWord(); refocusInput()" style="flex: 1;" id="skip-btn">Skip</button>
           <button class="play-button speaker-btn" id="play-btn" onclick="playReversedWord(); refocusInput()"><i class="fas fa-volume-up"></i></button>
           <button class="submit-button" onclick="submitGuess(); refocusInput()" style="flex: 1;" id="submit-btn">Submit</button>
           <div id="points-animation-container" style="position: absolute; pointer-events: none; width: 100%; height: 100%;"></div>
@@ -1073,12 +1073,12 @@
       const skipBtn = document.getElementById('skip-btn');
       if (gameState.gameMode === "daily") {
         if (gameState.helpRequested) {
-          skipBtn.textContent = 'Skip Word';
+          skipBtn.textContent = 'Skip';
         } else {
           skipBtn.textContent = 'Help';
         }
       } else {
-        skipBtn.textContent = 'Skip Word';
+        skipBtn.textContent = 'Skip';
       }
     }
 
