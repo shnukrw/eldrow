@@ -35,7 +35,22 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 10px;
+}
+
+.survival-stats {
+  justify-content: space-between;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.survival-stats > div {
+  flex: 1;
+  text-align: center;
+}
+
+.survival-stats .level-display {
+  min-width: 90px;
 }
 
 .level-row {
@@ -53,11 +68,12 @@ body {
 
 .home-stats {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   margin-bottom: 20px;
   font-size: 20px;
   font-weight: bold;
-  color: #e67e22;
+  color: #2c3e50;
 }
 
 /* Timer Styles */
@@ -84,6 +100,42 @@ body {
   align-items: center;
 }
 
+#aims-display {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.aim {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #bdc3c7;
+  background-color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.aim.hit {
+  background-color: #27ae60;
+  border-color: #27ae60;
+  color: white;
+}
+
+.aim.miss {
+  background-color: #e74c3c;
+  border-color: #e74c3c;
+  color: white;
+}
+
+.aim.helped {
+  background-color: #f39c12;
+  border-color: #f39c12;
+  color: white;
+}
+
 .timer.warning {
   color: #f39c12;
 }
@@ -107,6 +159,79 @@ body {
 .timer.danger i {
   color: #e74c3c !important;
   animation: flash-red 0.5s ease-in-out infinite;
+}
+
+/* Large timer styles for above word */
+.large-timer {
+  font-size: 36px !important;
+  font-weight: bold;
+  justify-content: center;
+}
+
+.large-timer i {
+  margin-right: 12px;
+  font-size: 32px;
+}
+
+.large-timer.danger {
+  font-size: 36px !important;
+}
+
+/* Hint letters for help */
+.letter.hint {
+  color: #f39c12;
+  background-color: rgba(243, 156, 18, 0.1);
+  border-radius: 4px;
+}
+
+/* Daily results styles */
+.daily-results {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.result-summary {
+  margin-bottom: 20px;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 0;
+  padding: 8px 16px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+}
+
+.result-label {
+  font-weight: bold;
+}
+
+.result-value {
+  font-weight: bold;
+  margin-left: auto;
+  margin-right: 10px;
+}
+
+.result-icon.green {
+  color: #27ae60;
+  font-size: 18px;
+}
+
+.result-icon.yellow {
+  color: #f39c12;
+  font-size: 18px;
+}
+
+.aims-final {
+  display: flex;
+  justify-content: center;
+}
+
+#final-aims-display {
+  display: flex;
+  gap: 8px;
 }
 
 /* Button Styles */
@@ -258,7 +383,7 @@ body {
 
 .word-display .letter {
   display: inline-block;
-  min-width: 20px;
+  min-width: 1em;
   font-weight: bold;
 }
 
@@ -285,6 +410,27 @@ body {
 
 .word-display.timeout .letter.typed {
   color: #e74c3c;
+}
+
+.word-display.give-up .letter.typed {
+  color: #e74c3c;
+}
+
+/* Word Display Size Modifiers */
+.word-display.s {
+  font-size: 24px;
+}
+
+.word-display.m {
+  font-size: 16px;
+}
+
+.word-display.l {
+  font-size: 12px;
+}
+
+.word-display.xl {
+  font-size: 8px;
 }
 
 /* Legacy Input Styles (kept for compatibility) */
@@ -411,13 +557,67 @@ body {
   background-color: #006699;
 }
 
+/* Mode Selection */
+.mode-selection {
+  margin: 30px 0;
+}
+
+.mode-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.mode-btn {
+  background-color: white;
+  border: 2px solid #bdc3c7;
+  border-radius: 15px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  text-align: center;
+}
+
+.mode-btn:hover {
+  border-color: #3498db;
+  background-color: #ecf0f1;
+}
+
+.mode-btn.active {
+  border-color: #3498db;
+  background-color: #3498db;
+  color: white;
+}
+
+.mode-btn i {
+  font-size: 24px;
+  margin-bottom: 5px;
+}
+
+.mode-btn span {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.mode-btn small {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+
 /* Language Selection */
 .start-section {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 20px;
-  margin: 20px 0;
+  margin: 40px 0 20px 0;
 }
 
 .language-selector {

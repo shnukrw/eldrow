@@ -28,21 +28,23 @@
     </div>
 
     <div class="game-stats" id="game-stats" style="display: none;">
-      <div class="stats-row">
-        <div class="timer" id="timer"><i class="fas fa-stopwatch"></i><span id="timer-value">60</span></div>
+      <div class="stats-row survival-stats" id="survival-stats">
         <div id="hearts-display"></div>
+        <div class="level-display" id="level-display">level <span id="level-number">1</span></div>
         <div><i class="fas fa-star"></i> <span id="score">0</span></div>
       </div>
-      <div class="level-row">
-        <div class="level-display" id="level-display">level <span id="level-number">1</span></div>
+      <div class="stats-row daily-stats" id="daily-stats" style="display: none;">
+        <div id="aims-display"></div>
       </div>
     </div>
 
     <div id="game-area">
       <div id="start-screen">
-        <p>Listen to the reversed word and guess the original!</p>
+        <p id="game-description">Listen to the reversed word and guess the original!</p>
+
+
         <div class="start-section">
-          <button class="start-button" onclick="startGame()">Start Game</button>
+          <button class="start-button" onclick="startGame()">Start</button>
           <div class="language-selector">
             <button class="current-lang-btn" id="current-lang" onclick="toggleLanguagePopup()">EN</button>
             <div class="language-popup" id="language-popup">
@@ -56,6 +58,12 @@
       </div>
 
       <div id="play-screen" style="display: none;">
+        <!-- Timer above word -->
+        <div class="timer-container" style="text-align: center; margin-bottom: 15px;">
+          <div class="timer large-timer" id="timer" style="display: none;"><i class="fas fa-stopwatch"></i><span id="timer-value">60</span></div>
+          <div class="timer large-timer" id="daily-timer" style="display: none;"><i class="fas fa-clock"></i><span id="daily-timer-value">0:00</span></div>
+        </div>
+
         <div style="margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; position: relative;">
           <div class="word-display" id="word-display" onclick="refocusInput()"></div>
           <input type="text" class="hidden-input" id="hidden-input" autocomplete="off" spellcheck="false"
@@ -74,11 +82,11 @@
       </div>
 
       <div id="game-over-screen" style="display: none;" class="game-over">
-        <h2>Score</h2>
+        <h2>Share my score</h2>
         <p>Last: <i class="fas fa-star"></i> <span id="final-score">0</span></p>
         <p>Best: <i class="fas fa-star"></i> <span id="best-score">0</span></p>
 
-        <div class="share-buttons" style="margin: 20px 0; display: flex; gap: 10px; justify-content: center;">
+        <div class="share-buttons" style="margin: 10px 0; display: flex; gap: 10px; justify-content: center;">
           <button class="share-btn twitter" onclick="shareToTwitter()"><i class="fab fa-twitter"></i></button>
           <button class="share-btn facebook" onclick="shareToFacebook()"><i class="fab fa-facebook"></i></button>
           <button class="share-btn whatsapp" onclick="shareToWhatsApp()"><i class="fab fa-whatsapp"></i></button>
@@ -105,11 +113,22 @@
       wordsGuessed: 0,
       isPlaying: false,
       currentLanguage: null, // No default language - user must select
-      speechLang: 'en-US',
+      speechLang: null,
       highScore: 0,
       currentGuess: "",
       displayState: "normal", // normal, correct, skipped, timeout
-      startGameRequested: false // Track if user clicked start game but was waiting for language selection
+      startGameRequested: false, // Track if user clicked start game but was waiting for language selection
+      gameMode: "daily", // "survival" or "daily"
+      dailyWords: [],
+      currentWordIndex: 0,
+      skippedWords: [],
+      elapsedTime: 0,
+      aims: [], // aims for daily challenge: 'empty', 'hit', 'helped', 'miss'
+      dailyResult: {}, // {lang: {date: {hits, time}}}
+      survivalResult: {}, // {lang: highScore}
+      helpRequested: false, // Track if help was requested for current word
+      dailyWordStats: [], // Track detailed stats for each word: {word, status: 'correct'|'helped'|'skipped', time}
+      processedWords: 0 // Track total words processed (including skipped ones)
     };
 
     function isSupported() {
@@ -192,7 +211,7 @@
     async function loadWords(language) {
       try {
         console.log(`Loading words for language: ${language}`);
-        const response = await fetch(`words_${language}.txt`);
+        const response = await fetch(`words/${language}.txt`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -209,12 +228,201 @@
       }
     }
 
+    async function loadDailyWords(language) {
+      try {
+        console.log(`Loading daily words for language: ${language}`);
+        const response = await fetch(`daily/${language}.json`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date().toISOString().split('T')[0];
+
+        if (data[today]) {
+          gameState.dailyWords = data[today];
+          console.log(`Successfully loaded daily words for ${today}:`, gameState.dailyWords);
+        } else {
+          throw new Error(`No daily words found for ${today}`);
+        }
+      } catch (error) {
+        console.error(`Failed to load daily words for ${language}:`, error);
+        // Fallback to random words from main word list
+        if (words.length === 0) {
+          await loadWords(language);
+        }
+        gameState.dailyWords = [];
+        for (let i = 0; i < 10; i++) {
+          gameState.dailyWords.push(words[Math.floor(Math.random() * words.length)]);
+        }
+        console.log("Using fallback daily words:", gameState.dailyWords);
+      }
+    }
+
+    function selectGameMode(mode) {
+      gameState.gameMode = mode;
+
+      // Update result display based on new mode
+      updateResultDisplay();
+
+      console.log(`Selected game mode: ${mode}`);
+    }
+
     function saveSettings() {
       const settings = {
         language: gameState.currentLanguage,
-        highScore: gameState.highScore
+        highScore: gameState.highScore,
+        dailyResult: gameState.dailyResult,
+        survivalResult: gameState.survivalResult,
+        gameProgress: gameState.gameProgress
       };
       localStorage.setItem('eldrow-settings', JSON.stringify(settings));
+    }
+
+    function saveGameProgress() {
+      if (gameState.gameMode !== 'daily' || !gameState.isPlaying) return;
+
+      const today = new Date().toISOString().split('T')[0];
+
+      if (!gameState.gameProgress) {
+        gameState.gameProgress = {};
+      }
+      if (!gameState.gameProgress[gameState.currentLanguage]) {
+        gameState.gameProgress[gameState.currentLanguage] = {};
+      }
+
+      gameState.gameProgress[gameState.currentLanguage][today] = {
+        currentWordIndex: gameState.currentWordIndex,
+        processedWords: gameState.processedWords,
+        aims: [...gameState.aims],
+        elapsedTime: gameState.elapsedTime,
+        dailyWords: [...gameState.dailyWords],
+        skippedWords: [...gameState.skippedWords],
+        dailyWordStats: [...gameState.dailyWordStats],
+        helpRequested: gameState.helpRequested,
+        currentWord: gameState.currentWord,
+        currentGuess: gameState.currentGuess,
+        displayState: gameState.displayState
+      };
+
+      saveSettings();
+    }
+
+    function hasUnfinishedGame() {
+      if (!gameState.gameProgress || !gameState.currentLanguage) return false;
+
+      const today = new Date().toISOString().split('T')[0];
+      const progress = gameState.gameProgress[gameState.currentLanguage];
+
+      if (!progress || !progress[today]) return false;
+
+      // Check if there's already a completed result for today
+      const dailyData = gameState.dailyResult[gameState.currentLanguage];
+      const todayResult = dailyData && dailyData[today];
+
+      return !todayResult; // Return true only if no completed result exists
+    }
+
+    function cleanOldProgress() {
+      if (!gameState.gameProgress) return;
+
+      const today = new Date().toISOString().split('T')[0];
+
+      // Clean progress for all languages, keeping only today's progress
+      Object.keys(gameState.gameProgress).forEach(language => {
+        Object.keys(gameState.gameProgress[language]).forEach(date => {
+          if (date !== today) {
+            delete gameState.gameProgress[language][date];
+          }
+        });
+      });
+
+      saveSettings();
+    }
+
+    async function continueGame() {
+      if (gameState.gameMode !== 'daily' || !hasUnfinishedGame()) {
+        startGame();
+        return;
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+      const progress = gameState.gameProgress[gameState.currentLanguage][today];
+
+      try {
+        // Load words first
+        await loadWords(gameState.currentLanguage);
+
+        // Initialize speech synthesis
+        await initSpeechSynthesis();
+
+        // Restore game state from saved progress
+        gameState.currentWordIndex = progress.currentWordIndex;
+        gameState.processedWords = progress.processedWords;
+        gameState.aims = [...progress.aims];
+        gameState.elapsedTime = progress.elapsedTime;
+        gameState.dailyWords = [...progress.dailyWords];
+        gameState.skippedWords = [...progress.skippedWords];
+        gameState.dailyWordStats = [...progress.dailyWordStats];
+        gameState.helpRequested = progress.helpRequested;
+        gameState.currentWord = progress.currentWord;
+        gameState.currentGuess = progress.currentGuess || '';
+        gameState.displayState = progress.displayState || 'normal';
+        gameState.isPlaying = true;
+        gameState.gameMode = 'daily';
+
+        // Set speech language
+        const langCodes = {
+          english: 'en-US',
+          russian: 'ru-RU',
+          german: 'de-DE',
+          spanish: 'es-ES'
+        };
+        gameState.speechLang = langCodes[gameState.currentLanguage];
+
+        // Start the game interface
+        document.getElementById("home-stats").style.display = "none";
+        document.getElementById("game-stats").style.display = "flex";
+        document.getElementById("start-screen").style.display = "none";
+        document.getElementById("play-screen").style.display = "block";
+        document.getElementById("game-over-screen").style.display = "none";
+
+        // Set up current word display and update UI
+        updateDisplay();
+
+        // Initialize word display but preserve restored state
+        const wordDisplay = document.getElementById('word-display');
+
+        // Restore input state
+        const hiddenInput = document.getElementById('hidden-input');
+        if (hiddenInput) {
+          hiddenInput.value = gameState.currentGuess;
+        }
+
+        // Update word display to show current state (including hints if any)
+        console.log('Restored state:', {
+          helpRequested: gameState.helpRequested,
+          displayState: gameState.displayState,
+          currentWord: gameState.currentWord,
+          currentGuess: gameState.currentGuess
+        });
+        updateWordDisplay();
+
+        // Update skip button based on restored help state
+        updateSkipButton();
+
+        enableGameButtons();
+        document.getElementById("feedback").textContent = "";
+
+        // Start timer for daily mode
+        startDailyTimer();
+
+        refocusInput();
+      } catch (error) {
+        console.error('Failed to continue game:', error);
+        startGame(); // Fall back to new game
+      }
     }
 
     function loadSettings() {
@@ -227,6 +435,12 @@
           console.log('Parsed settings:', settings);
           gameState.currentLanguage = settings.language || null;
           gameState.highScore = settings.highScore || 0;
+          gameState.dailyResult = settings.dailyResult || {};
+          gameState.survivalResult = settings.survivalResult || {};
+          gameState.gameProgress = settings.gameProgress || {};
+
+          // Clean old progress
+          cleanOldProgress();
 
           // Update UI
           updateLanguageDisplay();
@@ -293,6 +507,7 @@
       gameState.speechLang = langCodes[gameState.currentLanguage];
 
       updateLanguageDisplay();
+      updateResultDisplay();
       saveSettings();
 
       // Hide popup
@@ -319,6 +534,10 @@
       await selectLanguageFromPopup(language);
     }
 
+    function normalizeWord(str) {
+      return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
     function resetInput() {
       const hiddenInput = document.getElementById('hidden-input');
       gameState.currentGuess = '';
@@ -331,7 +550,10 @@
       const wordDisplay = document.getElementById('word-display');
 
       resetInput();
-      gameState.displayState = 'normal';
+      // Only reset display state if not continuing a game
+      if (!gameState.helpRequested) {
+        gameState.displayState = 'normal';
+      }
       updateWordDisplay();
     }
 
@@ -342,19 +564,44 @@
 
       let displayText = '';
 
-      // Show typed letters and remaining asterisks
-      for (let i = 0; i < wordLength; i++) {
-        if (i < guessLength) {
-          displayText += `<span class="letter typed">${gameState.currentGuess[i]}</span>`;
-        } else {
-          displayText += `<span class="letter asterisk">*</span>`;
+      if (gameState.displayState === 'helped' && gameState.gameMode === 'daily') {
+        // Show help hints - first and last letters
+        const hintCount = wordLength > 12 ? 2 : 1; // 2 letters for words 12+ chars, 1 for shorter
+        for (let i = 0; i < wordLength; i++) {
+          if (i < guessLength) {
+            displayText += `<span class="letter typed">${gameState.currentGuess[i]}</span>`;
+          } else if (i < hintCount || i >= wordLength - hintCount) {
+            // Show hint letters
+            displayText += `<span class="letter hint">${gameState.currentWord[i]}</span>`;
+          } else {
+            displayText += `<span class="letter asterisk">*</span>`;
+          }
+        }
+      } else {
+        // Normal display - show typed letters and remaining asterisks
+        for (let i = 0; i < wordLength; i++) {
+          if (i < guessLength) {
+            displayText += `<span class="letter typed">${gameState.currentGuess[i]}</span>`;
+          } else {
+            displayText += `<span class="letter asterisk">*</span>`;
+          }
         }
       }
 
       wordDisplay.innerHTML = displayText;
 
-      // Apply state-based styling
-      wordDisplay.className = `word-display ${gameState.displayState}`;
+      // Determine size modifier based on word length
+      let sizeModifier = 's';
+      if (wordLength >= 25) {
+        sizeModifier = 'xl';
+      } else if (wordLength >= 18) {
+        sizeModifier = 'l';
+      } else if (wordLength >= 12) {
+        sizeModifier = 'm';
+      }
+
+      // Apply state-based styling and size modifier
+      wordDisplay.className = `word-display ${gameState.displayState} ${sizeModifier}`;
     }
 
     function handleInput(event) {
@@ -413,6 +660,9 @@
     }
 
     async function startGame() {
+      // Stop next game timer when starting a game
+      stopNextGameTimer();
+
       // Debug logging
       console.log('startGame called');
       console.log('currentLanguage:', gameState.currentLanguage);
@@ -457,8 +707,12 @@
         // Initialize speech synthesis first
         await initSpeechSynthesis();
 
-        // Load words after speech is ready
-        await loadWords(gameState.currentLanguage);
+        // Load words based on game mode
+        if (gameState.gameMode === "daily") {
+          await loadDailyWords(gameState.currentLanguage);
+        } else {
+          await loadWords(gameState.currentLanguage);
+        }
 
         // Set speech language before resetting gameState
         const langCodes = {
@@ -469,18 +723,38 @@
         };
         const speechLang = langCodes[gameState.currentLanguage];
 
-        gameState = {
-          ...gameState,
-          score: 0,
-          lives: 3,
-          level: 1,
-          currentWord: "",
-          timeLeft: 60,
-          timer: null,
-          wordsGuessed: 0,
-          isPlaying: true,
-          speechLang: speechLang // Preserve speech language
-        };
+        // Reset game state based on mode
+        if (gameState.gameMode === "daily") {
+          gameState = {
+            ...gameState,
+            currentWord: "",
+            timer: null,
+            wordsGuessed: 0,
+            isPlaying: true,
+            speechLang: speechLang,
+            currentWordIndex: 0,
+            skippedWords: [],
+            elapsedTime: 0,
+            aims: Array(gameState.dailyWords.length).fill('empty'),
+            helpRequested: false,
+            dailyWordStats: [],
+            processedWords: 0
+          };
+        } else {
+          gameState = {
+            ...gameState,
+            score: 0,
+            lives: 3,
+            level: 1,
+            currentWord: "",
+            timeLeft: 60,
+            timer: null,
+            wordsGuessed: 0,
+            isPlaying: true,
+            speechLang: speechLang,
+            helpRequested: false
+          };
+        }
 
         // Re-enable submit button when starting new game
         const submitBtn = document.getElementById('submit-btn');
@@ -519,30 +793,68 @@
     function nextWord() {
       if (!gameState.isPlaying) return;
 
-      if (!words || words.length === 0) {
-        console.error(`No words available`);
-        return;
+      // Reset help state for new word
+      gameState.helpRequested = false;
+
+      if (gameState.gameMode === "daily") {
+        // Daily challenge mode
+        if (gameState.currentWordIndex >= gameState.dailyWords.length) {
+          // Add skipped words to the end
+          if (gameState.skippedWords.length > 0) {
+            const skippedWord = gameState.skippedWords.shift();
+            gameState.currentWord = skippedWord;
+            console.log(`Selected skipped word: ${gameState.currentWord}`);
+          } else {
+            // All words completed or processed 10 words
+            endDailyChallenge();
+            return;
+          }
+        }
+
+        // Check if we've processed 10 words total
+        if (gameState.processedWords >= gameState.dailyWords.length) {
+          endDailyChallenge();
+          return;
+        } else {
+          gameState.currentWord = gameState.dailyWords[gameState.currentWordIndex];
+          console.log(`Selected daily word ${gameState.currentWordIndex + 1}: ${gameState.currentWord}`);
+        }
+
+        updateDisplay();
+        startDailyTimer();
+      } else {
+        // Survival mode
+        if (!words || words.length === 0) {
+          console.error(`No words available`);
+          return;
+        }
+
+        // Filter words by length based on level
+        const levelUpExtra = (gameState.wordsGuessed % 5 == 4) ? 3 : 0;
+        const minLength = (gameState.level + 2) + levelUpExtra;
+        const maxLength = (gameState.level + 2) * 2 + levelUpExtra;
+        const filteredWords = words.filter(word => word.length >= minLength && word.length <= maxLength);
+
+        // If no words match the criteria, fallback to original list
+        const availableWords = filteredWords.length > 0 ? filteredWords : words;
+
+        gameState.currentWord = availableWords[Math.floor(Math.random() * availableWords.length)];
+        console.log(`Selected word: ${gameState.currentWord} (${gameState.currentLanguage}, level ${gameState.level}, length ${gameState.currentWord.length}, range: ${minLength}-${maxLength}, available: ${availableWords.length})`);
+
+        updateDisplay();
+        startTimer();
       }
 
-      // Filter words by length based on level: (level + 2) <= len <= (level + 2) * 2
-      const minLength = gameState.level + 2;
-      const maxLength = (gameState.level + 2) * 2;
-      const filteredWords = words.filter(word => word.length >= minLength && word.length <= maxLength);
-
-      // If no words match the criteria, fallback to original list
-      const availableWords = filteredWords.length > 0 ? filteredWords : words;
-
-      gameState.currentWord = availableWords[Math.floor(Math.random() * availableWords.length)];
-      console.log(`Selected word: ${gameState.currentWord} (${gameState.currentLanguage}, level ${gameState.level}, length ${gameState.currentWord.length}, range: ${minLength}-${maxLength}, available: ${availableWords.length})`);
-
-      // Timer is already set by the calling function (correct answer, timeout, or fresh start)
-
-      updateDisplay();
-      startTimer();
-
       initializeWordDisplay();
+      updateSkipButton();
+      enableGameButtons();
       document.getElementById("feedback").textContent = "";
       refocusInput();
+
+      // Save progress after each word setup
+      if (gameState.gameMode === 'daily') {
+        saveGameProgress();
+      }
 
       setTimeout(() => {
         if (gameState.isPlaying) {
@@ -552,6 +864,7 @@
     }
 
     function playReversedWord() {
+      if (buttonsBlocked) return;
       if (!gameState.isPlaying) return;
 
       const reversedWord = gameState.currentWord.split("").reverse().join("");
@@ -592,37 +905,68 @@
     }
 
     function submitGuess() {
+      if (buttonsBlocked) return;
       if (!gameState.isPlaying) return;
 
       const guess = gameState.currentGuess.toLowerCase().trim();
       const feedback = document.getElementById("feedback");
 
-      if (guess === gameState.currentWord.toLowerCase()) {
-        const wordLength = gameState.currentWord.length;
-        // Бонус за быстрое угадывание: 3x если больше 30 сек, иначе 2x
-        const multiplier = gameState.timeLeft > 30 ? 3 : 2;
-        const points = multiplier * wordLength;
-        gameState.score += points;
-        gameState.wordsGuessed++;
+      if (normalizeWord(guess) === normalizeWord(gameState.currentWord)) {
+        if (gameState.gameMode === "daily") {
+          // Daily challenge mode - mark aim as hit or helped
+          if (gameState.processedWords < gameState.dailyWords.length) {
+            gameState.aims[gameState.processedWords] = gameState.helpRequested ? 'helped' : 'hit';
+          }
+          gameState.processedWords++;
 
-        // Повышаем уровень каждые 5 угаданных слов
-        gameState.level = Math.floor(gameState.wordsGuessed / 5) + 1;
+          // Save progress
+          saveGameProgress();
 
-        // Show points animation from Submit button
-        showPointsAnimation('submit-btn', points);
+          // Record word stat
+          gameState.dailyWordStats.push({
+            word: gameState.currentWord,
+            status: gameState.helpRequested ? 'helped' : 'correct',
+            time: gameState.elapsedTime
+          });
 
-        // Highlight word display green for correct answer
-        gameState.displayState = 'correct';
-        updateWordDisplay();
+          gameState.currentWordIndex++;
 
-        clearInterval(gameState.timer);
-        // Reset timer to 60 for next word
-        gameState.timeLeft = 60;
+          // Highlight word display green for correct answer
+          gameState.displayState = 'correct';
+          blockGameButtons();
+          updateWordDisplay();
 
-        setTimeout(() => {
-          nextWord();
-        }, 2000);
+          setTimeout(() => {
+            nextWord();
+          }, 2000);
+        } else {
+          // Survival mode
+          const wordLength = gameState.currentWord.length;
+          // Бонус за быстрое угадывание: 3x если больше 30 сек, иначе 2x
+          const multiplier = gameState.timeLeft > 30 ? 3 : 2;
+          const points = multiplier * wordLength;
+          gameState.score += points;
+          gameState.wordsGuessed++;
 
+          // Повышаем уровень каждые 5 угаданных слов
+          gameState.level = Math.floor(gameState.wordsGuessed / 5) + 1;
+
+          // Show points animation from Submit button
+          showPointsAnimation('submit-btn', points);
+
+          // Highlight word display green for correct answer
+          gameState.displayState = 'correct';
+          blockGameButtons();
+          updateWordDisplay();
+
+          clearInterval(gameState.timer);
+          // Reset timer to 60 for next word
+          gameState.timeLeft = 60;
+
+          setTimeout(() => {
+            nextWord();
+          }, 2000);
+        }
       } else {
         // Flash submit button and change text
         const submitBtn = document.querySelector('.submit-button');
@@ -641,36 +985,198 @@
       updateDisplay();
     }
 
+    function requestHelp() {
+      if (buttonsBlocked) return;
+      if (gameState.gameMode !== "daily" || gameState.helpRequested) return;
+
+      gameState.helpRequested = true;
+      gameState.displayState = 'helped';
+      updateWordDisplay();
+      updateSkipButton();
+
+      // Save progress when help is shown
+      saveGameProgress();
+    }
+
     function skipWord() {
-      // Show the correct word in grey
+      if (buttonsBlocked) return;
+      if (gameState.gameMode === "daily" && !gameState.helpRequested) {
+        // First click - show help
+        requestHelp();
+        return;
+      }
+
+      // Show the correct word
       gameState.currentGuess = gameState.currentWord;
-      gameState.displayState = 'skipped';
+      gameState.displayState = gameState.gameMode === 'daily' ? 'give-up' : 'skipped';
+      blockGameButtons();
       updateWordDisplay();
 
-      // Reduce score by 1x количество букв, but don't go below 0
-      const wordLength = gameState.currentWord.length;
-      const points = -wordLength;
-      const oldScore = gameState.score;
-      gameState.score = Math.max(0, gameState.score - wordLength);
+      if (gameState.gameMode === "daily") {
+        // Record skipped word stat
+        gameState.dailyWordStats.push({
+          word: gameState.currentWord,
+          status: 'skipped',
+          time: gameState.elapsedTime
+        });
 
-      // Show points animation from Skip button (only if score actually decreased)
-      if (oldScore > gameState.score) {
-        showPointsAnimation('skip-btn', points);
+        // Mark as miss in aims
+        if (gameState.processedWords < gameState.dailyWords.length) {
+          gameState.aims[gameState.processedWords] = 'miss';
+        }
+        gameState.processedWords++;
+
+        // Save progress
+        saveGameProgress();
+
+        // Daily challenge mode - only add to skipped if from main list, not if already skipped
+        if (gameState.currentWordIndex < gameState.dailyWords.length) {
+          gameState.skippedWords.push(gameState.currentWord);
+          gameState.currentWordIndex++;
+        } else {
+          // This was a skipped word being processed - don't re-add it
+          // Just mark it as processed by not adding back to skipped list
+        }
+
+        setTimeout(() => {
+          nextWord();
+        }, 2000);
+      } else {
+        // Survival mode
+        // Reduce score by 1x количество букв, but don't go below 0
+        const wordLength = gameState.currentWord.length;
+        const points = -wordLength;
+        const oldScore = gameState.score;
+        gameState.score = Math.max(0, gameState.score - wordLength);
+
+        // Show points animation from Skip button (only if score actually decreased)
+        if (oldScore > gameState.score) {
+          showPointsAnimation('skip-btn', points);
+        }
+
+        clearInterval(gameState.timer);
+
+        // If less than 10 seconds, boost to 10 seconds
+        if (gameState.timeLeft < 10) {
+          gameState.timeLeft = 10;
+        }
+
+        setTimeout(() => {
+          nextWord();
+        }, 2000);
       }
-
-      clearInterval(gameState.timer);
-
-      // If less than 10 seconds, boost to 10 seconds
-      if (gameState.timeLeft < 10) {
-        gameState.timeLeft = 10;
-      }
-
-      setTimeout(() => {
-        nextWord();
-      }, 2000);
 
       updateDisplay();
     }
+
+    function updateSkipButton() {
+      const skipBtn = document.getElementById('skip-btn');
+      if (gameState.gameMode === "daily") {
+        if (gameState.helpRequested) {
+          skipBtn.textContent = 'Skip Word';
+        } else {
+          skipBtn.textContent = 'Help';
+        }
+      } else {
+        skipBtn.textContent = 'Skip Word';
+      }
+    }
+
+    let buttonsBlocked = false;
+    let nextGameTimer = null;
+
+    function blockGameButtons() {
+      buttonsBlocked = true;
+      // Enable buttons after 2 seconds (when word disappears)
+      setTimeout(() => {
+        buttonsBlocked = false;
+      }, 2000);
+    }
+
+    function getTimeUntilNextGame() {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const diff = tomorrow.getTime() - now.getTime();
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      return { hours, minutes, seconds, diff };
+    }
+
+    function startNextGameTimer(element) {
+      clearInterval(nextGameTimer);
+
+      function updateTimer() {
+        const { hours, minutes, seconds, diff } = getTimeUntilNextGame();
+
+        // Check if timer has gone negative (past midnight)
+        if (diff <= 0) {
+          // New day has started, reload the state
+          stopNextGameTimer();
+          updateResultDisplay();
+          return;
+        }
+
+        if (element) {
+          element.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+      }
+
+      updateTimer();
+      nextGameTimer = setInterval(updateTimer, 1000);
+    }
+
+    function stopNextGameTimer() {
+      clearInterval(nextGameTimer);
+      nextGameTimer = null;
+    }
+
+    function enableGameButtons() {
+      buttonsBlocked = false;
+    }
+
+    function createAimsHTML(aims) {
+      return aims.map(aim => {
+        let className = 'aim';
+        let icon = '';
+
+        switch (aim) {
+          case 'hit':
+            className += ' hit';
+            icon = '<i class="fas fa-check"></i>';
+            break;
+          case 'helped':
+            className += ' helped';
+            icon = '<i class="fas fa-check"></i>';
+            break;
+          case 'miss':
+            className += ' miss';
+            icon = '<i class="fas fa-times"></i>';
+            break;
+          default:
+            // empty - just the base aim class
+            break;
+        }
+
+        return `<div class="${className}">${icon}</div>`;
+      }).join('');
+    }
+
+    function getAimsEmoji(aims) {
+      return aims.map(aim => {
+        switch (aim) {
+          case 'hit': return '🟢';
+          case 'helped': return '🟡';
+          case 'miss': return '🔴';
+          default: return '⚪';
+        }
+      }).join('');
+    }
+
 
     function startTimer() {
       clearInterval(gameState.timer);
@@ -685,6 +1191,7 @@
           // Show correct answer in red
           gameState.currentGuess = gameState.currentWord;
           gameState.displayState = 'timeout';
+          blockGameButtons();
           updateWordDisplay();
 
           // Reset timer to 60 for next word
@@ -704,6 +1211,98 @@
       }, 1000);
     }
 
+    function startDailyTimer() {
+      clearInterval(gameState.timer);
+      gameState.timer = setInterval(() => {
+        gameState.elapsedTime++;
+        updateDisplay();
+      }, 1000);
+    }
+
+    function endDailyChallenge() {
+      gameState.isPlaying = false;
+      clearInterval(gameState.timer);
+      speechSynthesis.cancel();
+
+      // Mark remaining words as miss
+      for (let i = gameState.currentWordIndex; i < gameState.dailyWords.length; i++) {
+        if (gameState.aims[i] === 'empty') {
+          gameState.aims[i] = 'miss';
+        }
+      }
+
+      // Calculate completion stats
+      const hitsCount = gameState.aims.filter(aim => aim === 'hit').length;
+      const helpedCount = gameState.aims.filter(aim => aim === 'helped').length;
+      const totalTime = gameState.elapsedTime;
+      const today = new Date().toISOString().split('T')[0];
+
+      // Save daily result with detailed stats
+      if (!gameState.dailyResult[gameState.currentLanguage]) {
+        gameState.dailyResult[gameState.currentLanguage] = {};
+      }
+      gameState.dailyResult[gameState.currentLanguage][today] = {
+        hits: hitsCount + helpedCount, // Total successful
+        time: totalTime,
+        aims: [...gameState.aims], // Save the aims array
+        detailed: {
+          perfect: hitsCount,
+          helped: helpedCount,
+          words: gameState.dailyWordStats
+        }
+      };
+
+      // Clear progress for completed game
+      if (gameState.gameProgress &&
+          gameState.gameProgress[gameState.currentLanguage] &&
+          gameState.gameProgress[gameState.currentLanguage][today]) {
+        delete gameState.gameProgress[gameState.currentLanguage][today];
+      }
+
+      saveSettings();
+
+      // Show completion screen with detailed results
+      showDailyResults(hitsCount, helpedCount, totalTime);
+    }
+
+    function showShareResultsModal(aims, totalTime) {
+      const gameOverScreen = document.getElementById("game-over-screen");
+
+      // Create detailed results HTML
+      const minutes = Math.floor(totalTime / 60);
+      const seconds = totalTime % 60;
+      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+      gameOverScreen.innerHTML = `
+        <h2>Share my score</h2>
+        <div class="daily-results">
+          <p style="margin: 0;"><i class="fas fa-globe"></i> ${(() => {
+            const langCodes = { english: 'EN', russian: 'RU', german: 'DE', spanish: 'ES' };
+            return langCodes[gameState.currentLanguage];
+          })()} &nbsp;&nbsp; <i class="fas fa-clock"></i> ${timeStr}</p>
+          <div style="display: flex; gap: 6px; justify-content: center; margin: 10px 0; transform: scale(0.67);">${createAimsHTML(aims)}</div>
+        </div>
+
+        <div class="share-buttons" style="margin: 10px 0; display: flex; gap: 10px; justify-content: center;">
+          <button class="share-btn twitter" onclick="shareToTwitter()"><i class="fab fa-twitter"></i></button>
+          <button class="share-btn facebook" onclick="shareToFacebook()"><i class="fab fa-facebook"></i></button>
+          <button class="share-btn whatsapp" onclick="shareToWhatsApp()"><i class="fab fa-whatsapp"></i></button>
+          <button class="share-btn telegram" onclick="shareToTelegram()"><i class="fab fa-telegram"></i></button>
+          <button class="share-btn copy" onclick="copyScore()" title="Copy score"><i class="fas fa-copy"></i></button>
+        </div>
+
+        <button class="play-button" onclick="goHome()" style="margin-top: 10px;">Close</button>
+      `;
+
+      document.getElementById("start-screen").style.display = "none";
+      document.getElementById("play-screen").style.display = "none";
+      document.getElementById("game-over-screen").style.display = "block";
+    }
+
+    function showDailyResults(perfectHits, helpedHits, totalTime) {
+      showShareResultsModal(gameState.aims, totalTime);
+    }
+
     function endGame() {
       gameState.isPlaying = false;
       clearInterval(gameState.timer);
@@ -718,8 +1317,14 @@
       // Update high score if current score is higher
       if (gameState.score > gameState.highScore) {
         gameState.highScore = gameState.score;
-        saveSettings();
       }
+
+      // Save survival result
+      const currentSurvivalScore = gameState.survivalResult[gameState.currentLanguage] || 0;
+      if (gameState.score > currentSurvivalScore) {
+        gameState.survivalResult[gameState.currentLanguage] = gameState.score;
+      }
+      saveSettings();
 
       document.getElementById("final-score").textContent = gameState.score;
       document.getElementById("best-score").textContent = gameState.highScore;
@@ -742,33 +1347,86 @@
       document.getElementById("start-screen").style.display = "block";
       document.getElementById("play-screen").style.display = "none";
       document.getElementById("game-over-screen").style.display = "none";
+
+      // Update result display
+      updateResultDisplay();
     }
 
     function restartGame() {
       // Hide game over overlay first
       document.getElementById("game-over-screen").style.display = "none";
+
+      // For daily challenge, go back to home instead of restarting if already completed today
+      if (gameState.gameMode === 'daily') {
+        const today = new Date().toISOString().split('T')[0];
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          goHome();
+          return;
+        }
+      }
+
       startGame();
     }
 
     function updateDisplay() {
-      document.getElementById("score").textContent = gameState.score;
-      document.getElementById("high-score").textContent = gameState.highScore;
-      updateHeartsDisplay();
-      updateLevelDisplay();
+      const highScoreElement = document.getElementById("high-score");
+      if (highScoreElement) {
+        highScoreElement.textContent = gameState.highScore;
+      }
 
-      // Update timer with color coding
-      const timerElement = document.getElementById("timer");
-      const timerValue = document.getElementById("timer-value");
-      const timeLeft = Math.max(0, gameState.timeLeft); // Never show negative
+      if (gameState.gameMode === "daily") {
+        // Show daily challenge stats
+        document.getElementById("survival-stats").style.display = "none";
+        document.getElementById("daily-stats").style.display = "flex";
 
-      timerValue.textContent = timeLeft;
+        // Show daily timer, hide survival timer
+        document.getElementById("timer").style.display = "none";
+        document.getElementById("daily-timer").style.display = "flex";
 
-      // Reset timer classes
-      timerElement.className = "timer";
+        // Update elapsed time
+        const minutes = Math.floor(gameState.elapsedTime / 60);
+        const seconds = gameState.elapsedTime % 60;
+        document.getElementById("daily-timer-value").textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-      // Add danger class when 10 seconds or less
-      if (timeLeft <= 10 && timeLeft > 0) {
-        timerElement.classList.add("danger");
+
+        updateAimsDisplay();
+      } else {
+        // Show survival stats
+        document.getElementById("survival-stats").style.display = "flex";
+        document.getElementById("daily-stats").style.display = "none";
+
+        // Show survival timer, hide daily timer
+        document.getElementById("timer").style.display = "flex";
+        document.getElementById("daily-timer").style.display = "none";
+
+        const scoreElement = document.getElementById("score");
+        if (scoreElement) {
+          scoreElement.textContent = gameState.score;
+        }
+        updateHeartsDisplay();
+        updateLevelDisplay();
+
+        // Update timer with color coding
+        const timerElement = document.getElementById("timer");
+        const timerValue = document.getElementById("timer-value");
+        const timeLeft = Math.max(0, gameState.timeLeft); // Never show negative
+
+        if (timerValue) {
+          timerValue.textContent = timeLeft;
+        }
+
+        // Reset timer classes
+        if (timerElement) {
+          timerElement.className = "timer large-timer";
+
+          // Add danger class when 10 seconds or less
+          if (timeLeft <= 10 && timeLeft > 0) {
+            timerElement.classList.add("danger");
+          }
+        }
       }
     }
 
@@ -802,6 +1460,29 @@
       }
     }
 
+    function updateAimsDisplay() {
+      const aimsContainer = document.getElementById("aims-display");
+      aimsContainer.innerHTML = "";
+
+      for (let i = 0; i < gameState.dailyWords.length; i++) {
+        const aim = document.createElement("div");
+        aim.className = "aim";
+
+        if (gameState.aims[i] === 'hit') {
+          aim.classList.add("hit");
+          aim.innerHTML = '<i class="fas fa-check"></i>';
+        } else if (gameState.aims[i] === 'helped') {
+          aim.classList.add("helped");
+          aim.innerHTML = '<i class="fas fa-check"></i>';
+        } else if (gameState.aims[i] === 'miss') {
+          aim.classList.add("miss");
+          aim.innerHTML = '<i class="fas fa-times"></i>';
+        }
+
+        aimsContainer.appendChild(aim);
+      }
+    }
+
     function handleKeyPress(event) {
       if (event.key === "Enter") {
         submitGuess();
@@ -819,9 +1500,26 @@
     }
 
     function shareToTwitter() {
-      const text = `Just scored ${gameState.score} stars in ELDROW! My best: ${gameState.highScore} ⭐\n\nPlay this reverse word game: `;
-      const url = window.location.href;
-      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+      let text;
+      if (gameState.gameMode === "daily") {
+        // Get saved result for today
+        const today = new Date().toISOString().split('T')[0];
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          const aims = getAimsEmoji(todayResult.aims);
+          const minutes = Math.floor(todayResult.time / 60);
+          const seconds = todayResult.time % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
+        } else {
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
+        }
+      } else {
+        text = `Just scored ${gameState.score} stars in ELDROW! My best: ${gameState.highScore} ⭐\n\nPlay here: ${window.location.href}`;
+      }
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
       window.open(twitterUrl, '_blank');
     }
 
@@ -832,7 +1530,25 @@
     }
 
     function copyScore() {
-      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay: ${window.location.href}`;
+      let text;
+      if (gameState.gameMode === "daily") {
+        // Get saved result for today
+        const today = new Date().toISOString().split('T')[0];
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          const aims = getAimsEmoji(todayResult.aims);
+          const minutes = Math.floor(todayResult.time / 60);
+          const seconds = todayResult.time % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
+        } else {
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
+        }
+      } else {
+        text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay: ${window.location.href}`;
+      }
 
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text).then(() => {
@@ -863,13 +1579,49 @@
     }
 
     function shareToWhatsApp() {
-      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      let text;
+      if (gameState.gameMode === "daily") {
+        // Get saved result for today
+        const today = new Date().toISOString().split('T')[0];
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          const aims = getAimsEmoji(todayResult.aims);
+          const minutes = Math.floor(todayResult.time / 60);
+          const seconds = todayResult.time % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
+        } else {
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
+        }
+      } else {
+        text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      }
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
       window.open(whatsappUrl, '_blank');
     }
 
     function shareToTelegram() {
-      const text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      let text;
+      if (gameState.gameMode === "daily") {
+        // Get saved result for today
+        const today = new Date().toISOString().split('T')[0];
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          const aims = getAimsEmoji(todayResult.aims);
+          const minutes = Math.floor(todayResult.time / 60);
+          const seconds = todayResult.time % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()} | ${timeStr} | ${aims}\n\nPlay here: ${window.location.href}`;
+        } else {
+          text = `My score today\n${gameState.currentLanguage.substring(0, 2).toUpperCase()}\n\nPlay here: ${window.location.href}`;
+        }
+      } else {
+        text = `ELDROW Score: ${gameState.score} stars ⭐\nBest: ${gameState.highScore} stars\n\nPlay this reverse word game: ${window.location.href}`;
+      }
       const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`;
       window.open(telegramUrl, '_blank');
     }
@@ -884,19 +1636,138 @@
       }
     });
 
+    function initializeGameMode() {
+      // Check URL hash to determine game mode
+      const isSurvival = window.location.hash === '#survival';
+      gameState.gameMode = isSurvival ? 'survival' : 'daily';
+
+      console.log(`Initialized game mode: ${gameState.gameMode}`);
+    }
+
+    function updateResultDisplay() {
+      const homeStats = document.getElementById('home-stats');
+      const today = new Date().toISOString().split('T')[0];
+
+      if (gameState.gameMode === 'daily') {
+        if (!gameState.currentLanguage) {
+          homeStats.innerHTML = '<div>Daily Challenge</div>';
+          const startBtn = document.querySelector('.start-button');
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start';
+          startBtn.onclick = startGame;
+          return;
+        }
+        // Daily challenge mode
+        const dailyData = gameState.dailyResult[gameState.currentLanguage];
+        const todayResult = dailyData && dailyData[today];
+
+        if (todayResult) {
+          // Show today's result and disable start button
+          const minutes = Math.floor(todayResult.time / 60);
+          const seconds = todayResult.time % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          const aimsHTML = todayResult.aims ? createAimsHTML(todayResult.aims) : '';
+          homeStats.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 8px;">
+              <span style="font-weight: bold;">Today Result:</span>
+              <div class="timer" style="margin: 0;">
+                <i class="fas fa-clock"></i>
+                <span>${timeStr}</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 4px; justify-content: center; margin-bottom: 12px;">${aimsHTML}</div>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; opacity: 0.8;">
+              <span>Next game in</span>
+              <span id="next-game-timer" >00:00:00</span>
+            </div>
+          `;
+          // Hide game description when result is shown
+          document.getElementById('game-description').style.display = 'none';
+          const startBtn = document.querySelector('.start-button');
+          startBtn.disabled = false;
+          startBtn.textContent = 'Share';
+          startBtn.onclick = () => showShareResultsModal(todayResult.aims, todayResult.time);
+
+          // Start the next game timer
+          const timerElement = document.getElementById('next-game-timer');
+          if (timerElement) {
+            startNextGameTimer(timerElement);
+          }
+        } else {
+          // No result for today - check for unfinished game
+          homeStats.innerHTML = '<div>Daily Challenge</div>';
+          // Show game description when no result
+          document.getElementById('game-description').style.display = 'block';
+          const startBtn = document.querySelector('.start-button');
+          startBtn.disabled = false;
+
+          // Stop next game timer when no results are shown
+          stopNextGameTimer();
+
+          if (hasUnfinishedGame()) {
+            startBtn.textContent = 'Continue';
+            startBtn.onclick = continueGame;
+          } else {
+            startBtn.textContent = 'Start';
+            startBtn.onclick = startGame;
+          }
+        }
+      } else {
+        // Survival mode - stop next game timer
+        stopNextGameTimer();
+
+        if (!gameState.currentLanguage) {
+          homeStats.innerHTML = '<div>Survival Mode</div>';
+          document.getElementById('game-description').style.display = 'block';
+          const startBtn = document.querySelector('.start-button');
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start';
+          startBtn.onclick = startGame;
+        } else {
+          const survivalScore = gameState.survivalResult[gameState.currentLanguage] || 0;
+          if (survivalScore > 0) {
+            homeStats.innerHTML = `
+              <div>Survival Mode</div>
+              <div>Best Result: ${survivalScore} <i class="fas fa-star"></i></div>
+            `;
+            document.getElementById('game-description').style.display = 'none';
+          } else {
+            homeStats.innerHTML = '<div>Survival Mode</div>';
+            document.getElementById('game-description').style.display = 'block';
+          }
+        }
+
+        if (gameState.currentLanguage) {
+          const startBtn = document.querySelector('.start-button');
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start';
+          startBtn.onclick = startGame;
+        }
+      }
+    }
+
     // Initialize the game
     window.addEventListener('DOMContentLoaded', () => {
+      initializeGameMode(); // Determine game mode from URL
       loadSettings(); // Load saved settings first
       updateLanguageDisplay(); // Update display based on current state
+      updateResultDisplay(); // Update result display
       // Only load language if user has previously selected one
       if (gameState.currentLanguage) {
         changeLanguage(); // Load language (will use saved language)
       }
     });
 
+    // Listen for hash changes
+    window.addEventListener('hashchange', () => {
+      initializeGameMode();
+      updateResultDisplay();
+    });
+
     window.addEventListener('beforeunload', () => {
       speechSynthesis.cancel();
       clearInterval(gameState.timer);
+      stopNextGameTimer();
     });
   </script>
 </body>
